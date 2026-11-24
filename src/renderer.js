@@ -136,7 +136,7 @@ export class View {
     this.pool.forEach((l, i) => {
       const c = cand[i];
       if (!c || i >= this.activeLights) { l.intensity = 0; return; }
-      c.seg.toWorld(c.f.u, 0, CEILING - .7, l.position);
+      c.seg.toWorld(c.f.u, 0, c.f.y ?? CEILING - .7, l.position);
       l.color.setHex(c.f.color);
       l.intensity = 9 * c.f.intensity * prayer;
     });
@@ -164,7 +164,16 @@ export class View {
     // lean slightly into lane changes / turns
     this.camera.rotateZ(THREE.MathUtils.clamp(-run.lateralVel * .006, -.05, .05));
 
-    this.key.position.set(p.x + 1.5, 10, p.z + 2);
+    // daylight through the gallery fins: low warm sun from the open side
+    const Tk = THEMES[run.seg.theme];
+    const sun = Tk.sun ? 1 : 0;
+    this.sunMix = THREE.MathUtils.lerp(this.sunMix ?? 0, sun, 1 - Math.exp(-dt * 2));
+    const rgt = run.seg.right;
+    this.key.position.set(p.x + 1.5 + rgt.x * 9 * this.sunMix, 10 - 3 * this.sunMix, p.z + 2 + rgt.z * 9 * this.sunMix);
+    this.key.intensity = THREE.MathUtils.lerp(.55, 2.2, this.sunMix);
+    this.key.color.setRGB(1, 1 - .06 * this.sunMix, 1 - .16 * this.sunMix);
+    this.hemi.intensity = THREE.MathUtils.lerp(.22, .4, this.sunMix);
+    this.scene.environmentIntensity = THREE.MathUtils.lerp(this.scene.environmentIntensity, Tk.env ?? .32, .05);
     this.key.target.position.set(p.x - fwd.x * -2, 0, p.z - fwd.z * -2);
     this.placeLights(run);
 
@@ -178,15 +187,18 @@ export class View {
     this.fogColor.setHex(run.prayer ? 0x9aa6b2 : T.fog);
     this.scene.fog.color.lerp(this.fogColor, 1 - Math.exp(-dt * 1.5));
     this.scene.background.copy(this.scene.fog.color);
-    this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, run.prayer ? .012 : .022, .05);
+    this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, run.prayer ? .012 : (T.fogDensity ?? .022), .05);
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : .95, .05);
 
-    // drift dust
+    // drift dust (strong airflow in the plenum)
     {
+      const ws = (T.wind || 0) * dt;
+      this.wind ||= { x: 0, z: 0 };
+      this.wind.x -= run.seg.fwd.x * ws; this.wind.z -= run.seg.fwd.z * ws;
       const a = this.dust.geometry.attributes.position, S = this.dustSeed;
       for (let i = 0; i < S.length; i++) {
         const s = S[i];
-        const wx = s[0] + Math.sin(t * .2 + s[3]) * .4, wz = s[2] + t * .15, wy = s[1] + Math.sin(t * .3 + s[3] * 2) * .15;
+        const wx = s[0] + Math.sin(t * .2 + s[3]) * .4 + this.wind.x, wz = s[2] + t * .15 + this.wind.z, wy = s[1] + Math.sin(t * .3 + s[3] * 2) * .15;
         const lx = ((wx - p.x) % 14 + 14) % 14 - 7, lz = ((wz - p.z) % 40 + 40) % 40 - 20;
         a.setXYZ(i, p.x + lx, wy, p.z + lz);
       }

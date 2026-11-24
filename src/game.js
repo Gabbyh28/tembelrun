@@ -13,6 +13,11 @@ export const FAIL_REASONS = {
   bar: 'מגש כבלים תלוי. היה צריך לגלוש מתחת!',
   pit: 'נפלת לתוך הרצפה המוגבהת הפתוחה.',
   caught: 'ההשבתה השיגה אותך. כל המערכות נפלו!',
+  chair: 'נתקעת בכיסא משרדי. מי השאיר אותו באמצע המעבר?!',
+  drums: 'התנגשת בחביות הסולר של הגנרטור.',
+  exhaust: 'צינור פליטה של גנרטור. היה צריך לגלוש מתחת!',
+  filters: 'נכנסת בערימת פילטרים של מיזוג.',
+  duct: 'תעלת אוויר נמוכה. היה צריך לגלוש מתחת!',
 };
 
 export class Run {
@@ -92,6 +97,7 @@ export class Run {
     if (this.queuedTurn && this.u >= s.length - .2) this.doTurn(this.queuedTurn);
     else if (this.u > s.length + HALF - .7) return this.fail('wall');
 
+    this.moveObstacles(dt);
     this.collide();
     this.pickups(dt);
     this.updatePower(dt);
@@ -128,6 +134,18 @@ export class Run {
     if (child.theme !== this.lastTheme) { this.lastTheme = child.theme; this.emit('room', { theme: child.theme, name: THEMES[child.theme].he }); }
   }
 
+  // office chairs that roll across the aisle once you get close
+  moveObstacles(dt) {
+    for (const o of this.seg.obstacles) {
+      if (!o.move || o.broken) continue;
+      if (!o.rolling && o.u - this.u < o.move.trigger) { o.rolling = true; this.emit('roll'); }
+      if (!o.rolling) continue;
+      const d = o.move.to - o.x, step = Math.sign(d) * Math.min(Math.abs(d), o.move.speed * dt);
+      o.x += step;
+      if (o.mesh) { o.mesh.position.x = o.x; o.mesh.rotation.y += step * 1.6; }
+    }
+  }
+
   collide() {
     const s = this.seg;
     for (const o of s.obstacles) {
@@ -135,7 +153,8 @@ export class Run {
       const du = this.u - o.u;
       const reach = o.len / 2 + .35;
       if (du < -reach || du > reach) continue;
-      const laneHit = o.lanes.length === 3 || o.lanes.some(l => Math.abs(this.x - LANES[l]) < .95 * (this.giant ? 1.6 : 1));
+      const reachX = .95 * (this.giant ? 1.6 : 1);
+      const laneHit = o.x !== undefined ? Math.abs(this.x - o.x) < reachX : o.lanes.length === 3 || o.lanes.some(l => Math.abs(this.x - LANES[l]) < reachX);
       if (!laneHit) continue;
       if (this.invincible) {
         if (o.type === 'pit') continue; // ride over it
@@ -151,9 +170,10 @@ export class Run {
       if (o.need === 'slide') { if (this.sliding) continue; o.hit = true; return this.fail('bar'); }
       if (o.need === 'dodge') {
         // clipping the edge of an obstacle while changing lanes is a stumble, a head-on hit ends the run
-        const edge = Math.abs(this.x - LANES[o.lanes[0]]) > .55;
+        const ox = o.x ?? LANES[o.lanes[0]], ol = LANES.reduce((b, v, i) => Math.abs(v - ox) < Math.abs(LANES[b] - ox) ? i : b, 0);
+        const edge = Math.abs(this.x - ox) > .55;
         o.hit = true;
-        if (edge) { this.stumble(); this.lane = this.x < LANES[o.lanes[0]] ? Math.max(0, o.lanes[0] - 1) : Math.min(2, o.lanes[0] + 1); continue; }
+        if (edge) { this.stumble(); this.lane = this.x < ox ? Math.max(0, ol - 1) : Math.min(2, ol + 1); continue; }
         return this.fail(o.type);
       }
     }

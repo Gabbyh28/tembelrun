@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as TX from './textures.js';
 import { buildHarness, cordMaterial, buildTrough, spillGeometry } from './fibers.js';
+import { roomAssets, roomObstacles, buildRoom } from './rooms.js';
 
 export const AISLE = 7.2;            // floor width between rack fronts
 export const HALF = AISLE / 2;
@@ -16,12 +17,21 @@ const FIXTURE_STEP = 3.6;
 const DIRS = [new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)];
 
 export const THEMES = {
-  hall: { name: 'SERVER HALL B', he: 'אולם שרתים B', light: 0xe8f1ff, intensity: 1, fog: 0x0a0f15, duct: 0xf2c200 },
-  core: { name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
-  cold: { name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
-  power: { name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
+  hall: { kind: 'racks', name: 'SERVER HALL B', he: 'אולם שרתים B', light: 0xe8f1ff, intensity: 1, fog: 0x0a0f15, duct: 0xf2c200 },
+  core: { kind: 'racks', name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
+  cold: { kind: 'racks', name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
+  power: { kind: 'racks', name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
+  gallery: { kind: 'gallery', name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .9, fog: 0xaab4bd, fogDensity: .0055, duct: 0xf2c200, sun: true, env: .5 },
+  generator: { kind: 'generator', name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
+  plenum: { kind: 'plenum', name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
 };
-const THEME_ORDER = ['hall', 'core', 'cold', 'power'];
+const ROOM_OBSTACLES = {
+  racks: { jump: 'cable', slide: 'bar', jumpP: .2, slideP: .22, pitP: .16, dodge: ['cart', 'boxes', 'ladder'] },
+  gallery: { jump: 'cable', slide: 'bar', jumpP: 0, slideP: 0, dodge: ['chair', 'chair', 'chair'] },
+  generator: { jump: 'hose', slide: 'exhaust', jumpP: .2, slideP: .24, dodge: ['drums', 'drums', 'cart'] },
+  plenum: { jump: 'condensate', slide: 'duct', jumpP: .22, slideP: .26, dodge: ['filters', 'filters', 'boxes'] },
+};
+const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'generator', 'power'];
 
 const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
@@ -53,7 +63,7 @@ export class Assets {
     this.spillMats = {};
     this.time = { value: 0 };
     this.prayer = { value: 0 };
-    for (const t of THEME_ORDER) for (let v = 0; v < 4; v++) this.rackFront(t, v);
+    for (const t of THEME_ORDER) if (THEMES[t].kind === 'racks') for (let v = 0; v < 4; v++) this.rackFront(t, v);
 
     // geometry
     this.rackGeo = new THREE.BoxGeometry(RACK.w, RACK.h, RACK.d);
@@ -67,6 +77,9 @@ export class Assets {
     this.redGlow = TX.glowTexture('255,60,40');
     this.signs = {};
     this.obstacleKit = buildObstacleKit(this);
+    this.R = roomAssets(this);
+    Object.assign(this.obstacleKit, roomObstacles(this, this.R));
+    this.obstacleKit.hose = this.obstacleKit.cable;
   }
   rackFront(theme, v) {
     const key = theme + v;
@@ -387,22 +400,34 @@ export class Track {
     const push = o => { seg.obstacles.push(o); return o; };
     while (u < endU) {
       const roll = r();
+      const room = THEMES[seg.theme].kind;
+      const set = ROOM_OBSTACLES[room];
       let kind;
-      if (roll < .2) kind = 'cable';
-      else if (roll < .42) kind = 'bar';
-      else if (roll < .58) kind = 'pit';
+      if (roll < set.jumpP) kind = 'jump';
+      else if (roll < set.jumpP + set.slideP) kind = 'slide';
+      else if (roll < set.jumpP + set.slideP + (set.pitP || 0)) kind = 'pit';
       else kind = 'dodge';
       let free = [0, 1, 2];
-      if (kind === 'cable') push({ type: 'cable', u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true });
-      else if (kind === 'bar') push({ type: 'bar', u, len: .7, lanes: [0, 1, 2], need: 'slide' });
+      if (kind === 'jump') push({ type: set.jump, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true });
+      else if (kind === 'slide') push({ type: set.slide, u, len: set.slide === 'duct' ? 1 : .7, lanes: [0, 1, 2], need: 'slide' });
       else if (kind === 'pit') push({ type: 'pit', u, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
-      else {
+      else if (room === 'gallery' && r() < .3) {
+        // an office chair rolls across the aisle as you approach
+        const a = r() * 3 | 0, b = a === 1 ? (r() < .5 ? 0 : 2) : 1;
+        push({ type: 'chair', u, len: .7, lanes: [a, b], need: 'dodge', x: LANES[a], move: { to: LANES[b], trigger: 26, speed: 2.4 } });
+        free = [0, 1, 2].filter(l => l !== a && l !== b);
+      } else if (room === 'gallery' && r() < .3) {
+        // a chair knocked over: jump it or go round
+        const l = r() * 3 | 0;
+        push({ type: 'chairDown', u, len: .9, lanes: [l], need: 'jump', clear: .55, stumble: true });
+        free = [0, 1, 2].filter(x => x !== l);
+      } else {
         const count = r() < .35 + diff * .35 ? 2 : 1;
         const lanes = [0, 1, 2].sort(() => r() - .5).slice(0, count);
         free = [0, 1, 2].filter(l => !lanes.includes(l));
         for (const l of lanes) {
-          const t = ['cart', 'boxes', 'ladder'][r() * 3 | 0];
-          push({ type: t, u: u + (r() - .5) * .6, len: t === 'boxes' ? 1.0 : .8, lanes: [l], need: 'dodge' });
+          const t = set.dodge[r() * set.dodge.length | 0];
+          push({ type: t, u: u + (r() - .5) * .6, len: t === 'boxes' || t === 'drums' || t === 'filters' ? 1.1 : .8, lanes: [l], need: 'dodge' });
         }
       }
       // QSFP run leading into the obstacle
@@ -449,132 +474,143 @@ export class Track {
       // world-aligned UVs so tiles line up across pieces
       const uv = geo.attributes.uv, pos = geo.attributes.position;
       for (let i = 0; i < uv.count; i++) { uv.setXY(i, (pos.getX(i) + HALF) / 1.2, (-(pos.getZ(i)) + (a + b) / 2) / 1.2); }
-      const m = own(new THREE.Mesh(geo, A.floorMat));
+      const m = own(new THREE.Mesh(geo, T.kind === 'racks' ? A.floorMat : A.R.floor[T.kind]));
       m.position.set(0, 0, -(a + b) / 2); m.receiveShadow = true; g.add(m);
     }
 
-    // Racks
-    const left = seg.turns.left, right = seg.turns.right;
-    const rows = [];
-    const sideEnd = open => open ? L - HALF : uEnd + RACK.d;
-    rows.push({ side: -1, from: u0, to: sideEnd(left) });
-    rows.push({ side: 1, from: u0, to: sideEnd(right) });
-    const variantMats = [0, 1, 2, 3].map(v => A.rackFront(seg.theme, v));
-    const buckets = [[], [], [], []];
     const r = rng(seg.seed * 7 + 11);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-    const pickVariant = () => {
-      const x = r();
-      if (seg.theme === 'cold') return x < .14 ? 0 : 1 + (x * 3 | 0) % 3;
-      return x * 4 | 0;
-    };
-    for (const row of rows) {
-      const n = Math.floor((row.to - row.from) / RACK.w);
-      q.setFromAxisAngle(up, row.side < 0 ? Math.PI / 2 : -Math.PI / 2);
-      let v = pickVariant(), run = 0;
-      for (let i = 0; i < n; i++) {
-        if (run-- <= 0) { v = pickVariant(); run = 1 + (r() * 4 | 0); }
-        p.set(row.side * (HALF + RACK.d / 2), RACK.h / 2 + .02, -(row.from + RACK.w / 2 + i * RACK.w));
-        buckets[v].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
-      }
+    // doorway header so taller/shorter rooms meet cleanly at the junction
+    if (!seg.first) {
+      const hd = own(new THREE.Mesh(new THREE.PlaneGeometry(AISLE + 6, 3.4), A.rackBody));
+      hd.material = A.rackBody; hd.position.set(0, 3.4 + 1.7, -u0); g.add(hd);
+      const hd2 = hd.clone(); hd2.rotation.y = Math.PI; g.add(hd2);
     }
-    // end wall facing the runner
-    const wallFrom = left ? -HALF : -HALF - RACK.d, wallTo = right ? HALF : HALF + RACK.d;
-    const nWall = Math.round((wallTo - wallFrom) / RACK.w);
-    q.identity();
-    for (let i = 0; i < nWall; i++) {
-      p.set(wallFrom + RACK.w / 2 + i * RACK.w, RACK.h / 2 + .02, -(uEnd + RACK.d / 2));
-      buckets[pickVariant()].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
-    }
-    buckets.forEach((mats, v) => {
-      if (!mats.length) return;
-      const im = new THREE.InstancedMesh(A.rackGeo, variantMats[v], mats.length);
-      mats.forEach((e, i) => im.setMatrixAt(i, e.m));
-      im.castShadow = true; im.receiveShadow = true;
-      im.computeBoundingSphere();
-      g.add(im);
-      // 3D patch cords, drawn only for racks near the runner (see updateCords)
-      const hg = A.harness[seg.theme + v];
-      if (hg) {
-        const sorted = mats.slice().sort((a, b) => a.u - b.u);
-        const cm = new THREE.InstancedMesh(hg, A.cordMat, sorted.length);
-        cm.count = 0; cm.frustumCulled = false; cm.castShadow = false; cm.receiveShadow = true;
-        seg.cords.push({ mesh: cm, list: sorted, start: -1, end: -1 });
-        g.add(cm);
-      }
-    });
-
-    // Containment panels above racks + fibre duct along each row
-    const panelH = CEILING - RACK.h - .02;
-    const duct = A.duct(T.duct);
-    for (const row of rows) {
-      const len = row.to - row.from;
-      const geo = new THREE.PlaneGeometry(len, panelH);
-      const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / 1.2, uv.getY(i));
-      const m = own(new THREE.Mesh(geo, A.containment));
-      m.rotation.y = row.side < 0 ? Math.PI / 2 : -Math.PI / 2;
-      m.position.set(row.side * (HALF + .04), RACK.h + panelH / 2 + .02, -(row.from + len / 2));
-      g.add(m);
-      const tr = buildTrough(len, T.duct, A.time, { seed: seg.seed + row.side, fibreColor: T.duct });
-      tr.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
-      tr.position.set(row.side * (HALF - .2), 2.56, -row.from); g.add(tr);
-      // spill-outs dropping fibre into every third rack
-      const n = Math.floor(len / 3);
-      if (n > 0) {
-        const sp = new THREE.InstancedMesh(A.spillGeo, A.spillMat(T.duct), n);
-        const sq = new THREE.Quaternion().setFromAxisAngle(up, row.side < 0 ? Math.PI : 0);
-        for (let i = 0; i < n; i++) { p.set(row.side * (HALF - .2), 2.56, -(row.from + 1.5 + i * 3)); sp.setMatrixAt(i, m4.compose(p, sq, s1)); }
-        sp.castShadow = true; sp.computeBoundingSphere(); g.add(sp);
-      }
-    }
-    {
-      const w = wallTo - wallFrom;
-      const geo = new THREE.PlaneGeometry(w, panelH);
-      const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / 1.2, uv.getY(i));
-      const m = own(new THREE.Mesh(geo, A.containment));
-      m.position.set((wallFrom + wallTo) / 2, RACK.h + panelH / 2 + .02, -(uEnd + .04)); g.add(m);
-    }
-
-    // Ceiling
-    {
-      const len = uEnd - u0 + RACK.d;
-      const geo = new THREE.PlaneGeometry(AISLE + RACK.d * 2, len); geo.rotateX(Math.PI / 2);
-      const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (AISLE + 2.4) / 2.4, uv.getY(i) * len / 2.4);
-      const m = own(new THREE.Mesh(geo, A.ceiling)); m.position.set(0, CEILING, -(u0 + len / 2)); g.add(m);
-    }
-
-    // Centre ladder tray with a fibre bundle
-    {
-      const len = uEnd - u0;
-      const geo = new THREE.PlaneGeometry(.6, len); geo.rotateX(-Math.PI / 2);
-      const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i), uv.getY(i) * len / 2);
-      const m = own(new THREE.Mesh(geo, A.ladder)); m.position.set(0, 3.25, -(u0 + len / 2)); g.add(m);
-      const c = own(new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, len, 10, 1, true), A.cableBlack));
-      c.rotation.x = Math.PI / 2; c.position.set(.08, 3.38, -(u0 + len / 2)); g.add(c);
-      const f = buildTrough(len, T.duct, A.time, { width: .24, height: .09, fibres: 7, seed: seg.seed + 5, fibreColor: T.duct });
-      f.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
-      f.position.set(-.18, 3.27, -u0); g.add(f);
-    }
-
-    // Linear LED fixtures (emissive + real lights pooled in game)
-    {
-      const xs = [-1.7, 1.7];
-      const count = Math.floor((uEnd - u0) / FIXTURE_STEP) * xs.length;
-      const im = new THREE.InstancedMesh(A.fixtureGeo, A.fixtureMat(T.light), count);
-      const hm = new THREE.InstancedMesh(A.fixtureHousing, A.housingMat, count);
-      let i = 0;
-      for (let u = u0 + FIXTURE_STEP / 2; u < uEnd && i < count; u += FIXTURE_STEP) {
-        for (const x of xs) {
-          if (i >= count) break;
-          p.set(x, CEILING - .55, -u); m4.makeTranslation(p.x, p.y, p.z);
-          im.setMatrixAt(i, m4); hm.setMatrixAt(i, m4); i++;
+    if (T.kind !== 'racks') {
+      buildRoom(T.kind, { g, own, seg, A, R: A.R, T, L, u0, uEnd, HALF, AISLE, left: seg.turns.left, right: seg.turns.right, r: rng(seg.seed * 13 + 5) });
+    } else {
+      // Racks
+      const left = seg.turns.left, right = seg.turns.right;
+      const rows = [];
+      const sideEnd = open => open ? L - HALF : uEnd + RACK.d;
+      rows.push({ side: -1, from: u0, to: sideEnd(left) });
+      rows.push({ side: 1, from: u0, to: sideEnd(right) });
+      const variantMats = [0, 1, 2, 3].map(v => A.rackFront(seg.theme, v));
+      const buckets = [[], [], [], []];
+      const r = rng(seg.seed * 7 + 11);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+      const pickVariant = () => {
+        const x = r();
+        if (seg.theme === 'cold') return x < .14 ? 0 : 1 + (x * 3 | 0) % 3;
+        return x * 4 | 0;
+      };
+      for (const row of rows) {
+        const n = Math.floor((row.to - row.from) / RACK.w);
+        q.setFromAxisAngle(up, row.side < 0 ? Math.PI / 2 : -Math.PI / 2);
+        let v = pickVariant(), run = 0;
+        for (let i = 0; i < n; i++) {
+          if (run-- <= 0) { v = pickVariant(); run = 1 + (r() * 4 | 0); }
+          p.set(row.side * (HALF + RACK.d / 2), RACK.h / 2 + .02, -(row.from + RACK.w / 2 + i * RACK.w));
+          buckets[v].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
         }
-        seg.fixtures.push({ u, color: T.light, intensity: T.intensity });
       }
-      im.count = hm.count = i;
-      im.computeBoundingSphere(); hm.computeBoundingSphere();
-      g.add(im, hm);
-      // suspension rods
+      // end wall facing the runner
+      const wallFrom = left ? -HALF : -HALF - RACK.d, wallTo = right ? HALF : HALF + RACK.d;
+      const nWall = Math.round((wallTo - wallFrom) / RACK.w);
+      q.identity();
+      for (let i = 0; i < nWall; i++) {
+        p.set(wallFrom + RACK.w / 2 + i * RACK.w, RACK.h / 2 + .02, -(uEnd + RACK.d / 2));
+        buckets[pickVariant()].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
+      }
+      buckets.forEach((mats, v) => {
+        if (!mats.length) return;
+        const im = new THREE.InstancedMesh(A.rackGeo, variantMats[v], mats.length);
+        mats.forEach((e, i) => im.setMatrixAt(i, e.m));
+        im.castShadow = true; im.receiveShadow = true;
+        im.computeBoundingSphere();
+        g.add(im);
+        // 3D patch cords, drawn only for racks near the runner (see updateCords)
+        const hg = A.harness[seg.theme + v];
+        if (hg) {
+          const sorted = mats.slice().sort((a, b) => a.u - b.u);
+          const cm = new THREE.InstancedMesh(hg, A.cordMat, sorted.length);
+          cm.count = 0; cm.frustumCulled = false; cm.castShadow = false; cm.receiveShadow = true;
+          seg.cords.push({ mesh: cm, list: sorted, start: -1, end: -1 });
+          g.add(cm);
+        }
+      });
+
+      // Containment panels above racks + fibre duct along each row
+      const panelH = CEILING - RACK.h - .02;
+      const duct = A.duct(T.duct);
+      for (const row of rows) {
+        const len = row.to - row.from;
+        const geo = new THREE.PlaneGeometry(len, panelH);
+        const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / 1.2, uv.getY(i));
+        const m = own(new THREE.Mesh(geo, A.containment));
+        m.rotation.y = row.side < 0 ? Math.PI / 2 : -Math.PI / 2;
+        m.position.set(row.side * (HALF + .04), RACK.h + panelH / 2 + .02, -(row.from + len / 2));
+        g.add(m);
+        const tr = buildTrough(len, T.duct, A.time, { seed: seg.seed + row.side, fibreColor: T.duct });
+        tr.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
+        tr.position.set(row.side * (HALF - .2), 2.56, -row.from); g.add(tr);
+        // spill-outs dropping fibre into every third rack
+        const n = Math.floor(len / 3);
+        if (n > 0) {
+          const sp = new THREE.InstancedMesh(A.spillGeo, A.spillMat(T.duct), n);
+          const sq = new THREE.Quaternion().setFromAxisAngle(up, row.side < 0 ? Math.PI : 0);
+          for (let i = 0; i < n; i++) { p.set(row.side * (HALF - .2), 2.56, -(row.from + 1.5 + i * 3)); sp.setMatrixAt(i, m4.compose(p, sq, s1)); }
+          sp.castShadow = true; sp.computeBoundingSphere(); g.add(sp);
+        }
+      }
+      {
+        const w = wallTo - wallFrom;
+        const geo = new THREE.PlaneGeometry(w, panelH);
+        const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / 1.2, uv.getY(i));
+        const m = own(new THREE.Mesh(geo, A.containment));
+        m.position.set((wallFrom + wallTo) / 2, RACK.h + panelH / 2 + .02, -(uEnd + .04)); g.add(m);
+      }
+
+      // Ceiling
+      {
+        const len = uEnd - u0 + RACK.d;
+        const geo = new THREE.PlaneGeometry(AISLE + RACK.d * 2, len); geo.rotateX(Math.PI / 2);
+        const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (AISLE + 2.4) / 2.4, uv.getY(i) * len / 2.4);
+        const m = own(new THREE.Mesh(geo, A.ceiling)); m.position.set(0, CEILING, -(u0 + len / 2)); g.add(m);
+      }
+
+      // Centre ladder tray with a fibre bundle
+      {
+        const len = uEnd - u0;
+        const geo = new THREE.PlaneGeometry(.6, len); geo.rotateX(-Math.PI / 2);
+        const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i), uv.getY(i) * len / 2);
+        const m = own(new THREE.Mesh(geo, A.ladder)); m.position.set(0, 3.25, -(u0 + len / 2)); g.add(m);
+        const c = own(new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, len, 10, 1, true), A.cableBlack));
+        c.rotation.x = Math.PI / 2; c.position.set(.08, 3.38, -(u0 + len / 2)); g.add(c);
+        const f = buildTrough(len, T.duct, A.time, { width: .24, height: .09, fibres: 7, seed: seg.seed + 5, fibreColor: T.duct });
+        f.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
+        f.position.set(-.18, 3.27, -u0); g.add(f);
+      }
+
+      // Linear LED fixtures (emissive + real lights pooled in game)
+      {
+        const xs = [-1.7, 1.7];
+        const count = Math.floor((uEnd - u0) / FIXTURE_STEP) * xs.length;
+        const im = new THREE.InstancedMesh(A.fixtureGeo, A.fixtureMat(T.light), count);
+        const hm = new THREE.InstancedMesh(A.fixtureHousing, A.housingMat, count);
+        let i = 0;
+        for (let u = u0 + FIXTURE_STEP / 2; u < uEnd && i < count; u += FIXTURE_STEP) {
+          for (const x of xs) {
+            if (i >= count) break;
+            p.set(x, CEILING - .55, -u); m4.makeTranslation(p.x, p.y, p.z);
+            im.setMatrixAt(i, m4); hm.setMatrixAt(i, m4); i++;
+          }
+          seg.fixtures.push({ u, color: T.light, intensity: T.intensity });
+        }
+        im.count = hm.count = i;
+        im.computeBoundingSphere(); hm.computeBoundingSphere();
+        g.add(im, hm);
+        // suspension rods
+      }
     }
 
     // Row sign hanging at the start of the aisle
@@ -593,7 +629,7 @@ export class Track {
       else if (o.type === 'bar') mesh = A.obstacleKit.bar.clone();
       else if (o.type === 'pit') mesh = A.obstacleKit.pit.clone();
       else mesh = A.obstacleKit[o.type].clone();
-      const x = o.lanes.length === 3 ? 0 : LANES[o.lanes[0]];
+      const x = o.x ?? (o.lanes.length === 3 ? 0 : LANES[o.lanes[0]]);
       mesh.position.set(x, 0, -o.u);
       if (o.lanes.length === 1) mesh.rotation.y = (r() - .5) * .5;
       o.mesh = mesh; g.add(mesh);

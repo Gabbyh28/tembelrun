@@ -3,16 +3,16 @@
 // roughness and a height map that is converted to a normal map.
 import * as THREE from 'three';
 
-const rand = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+export const rand = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
-function canvas(w, h) {
+export function canvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   return [c, c.getContext('2d')];
 }
 
 // Sobel height -> tangent space normal map.
-function heightToNormal(src, strength = 2) {
+export function heightToNormal(src, strength = 2) {
   const w = src.width, h = src.height;
   const s = src.getContext('2d').getImageData(0, 0, w, h).data;
   const [c, g] = canvas(w, h);
@@ -30,7 +30,7 @@ function heightToNormal(src, strength = 2) {
   return c;
 }
 
-function tex(c, { srgb = true, repeat = false, aniso = 8 } = {}) {
+export function tex(c, { srgb = true, repeat = false, aniso = 8 } = {}) {
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -39,7 +39,7 @@ function tex(c, { srgb = true, repeat = false, aniso = 8 } = {}) {
   return t;
 }
 
-function noise(g, w, h, r, amount, alpha = .05) {
+export function noise(g, w, h, r, amount, alpha = .05) {
   for (let i = 0; i < amount; i++) {
     const v = r() * 255 | 0;
     g.fillStyle = `rgba(${v},${v},${v},${alpha})`;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { View } from './renderer.js';
-import { Assets, Track, HALF } from './world.js';
+import { Assets, Track, HALF, THEMES } from './world.js';
 import { Run } from './game.js';
 import { PlayerView, loadAtlas } from './player.js';
 import { HananView } from './host.js';
@@ -151,7 +151,7 @@ async function boot() {
       n--;
       if (n <= 0) {
         clearInterval(countdownTimer); $('countdown').hidden = true; run.mode = 'running'; audio.play({ type: 'go' });
-        radio('start'); showRoom('אולם שרתים B');
+        radio('start'); showRoom(THEMES[run.seg.theme].he);
       } else { const c = $('countNum'); c.textContent = n; c.style.animation = 'none'; void c.offsetWidth; c.style.animation = ''; audio.play({ type: 'tick' }); }
     }, 650);
     syncTouch();

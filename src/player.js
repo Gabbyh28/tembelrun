@@ -193,11 +193,13 @@ export class PlayerView {
     this.wasAir = air; this.wasSliding = run.sliding;
     this.squash = THREE.MathUtils.damp(this.squash || 0, 0, 9, dt);
     if (run.riding === 'jack' && run.mode === 'running') {
-      this.showFrame(ch.atlas, 11, scale);                       // standing on the forks, back view
+      if (this.hasAnim('idle')) this.showAnim('idle', this.animLoop('idle', dt, 1.4), scale);   // riding the forks, balancing
+      else this.showFrame(ch.atlas, 11, scale);
     } else if (run.riding === 'tray' && run.mode === 'running') {
-      this.showFrame(ch.atlas, 9, scale);                        // sliding pose inside the tray
+      if (this.hasAnim('slide')) { const n = FRAMES[ch.atlas].anims.slide.count; this.showAnim('slide', Math.floor(n * .45) + (Math.floor(t * 8) % 2), scale); }
+      else this.showFrame(ch.atlas, 9, scale);                   // sliding pose inside the tray
     } else if (run.rolling && this.hasAnim('roll')) {
-      this.showAnim('roll', this.animLoop('roll', dt, 1.3), scale, 1.3);
+      this.showAnim('roll', this.animLoop('roll', dt, 1.3), scale);
     } else if (run.rolling && ch.rollAtlas) {
       const f = Math.floor(run.distance * .9) % 8;
       this.showFrame(ch.rollAtlas, f, scale);

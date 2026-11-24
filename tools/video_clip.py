@@ -7,7 +7,7 @@ import numpy as np, cv2
 from PIL import Image
 
 name, kind, path = sys.argv[1:4]
-LOOP = kind in ('idle', 'roll', 'elastic', 'prayer')
+LOOP = kind in ('idle', 'roll', 'elastic', 'prayer', 'chase')
 cap = cv2.VideoCapture(path); fps = cap.get(cv2.CAP_PROP_FPS) or 24
 frames = []
 while True:
@@ -78,11 +78,11 @@ else:
     cells = [place(i, ref_ground) for i in idx]
 
 if LOOP:
-    start = int(.3 * fps)
+    start = int((1.1 if kind == 'roll' else .3) * fps)
     sil = [cv2.resize(c[..., 3], (50, 50)) / 255 for c in cells]
     best = None
     for s0 in range(start, max(start + 1, len(cells) - 14)):
-        for P in (range(36, 60) if kind == 'idle' else range(10, 30)):
+        for P in (range(36, 60) if kind == 'idle' else range(18, 40) if kind == 'roll' else range(10, 30)):
             if s0 + P + 1 >= len(cells): break
             d = np.abs(sil[s0] - sil[s0 + P]).mean() + np.abs(sil[s0 + 1] - sil[s0 + P + 1]).mean()
             if best is None or d < best[0]: best = (d, s0, P)
@@ -97,7 +97,7 @@ for i, c in enumerate(cells):
     atlas.paste(Image.fromarray(np.clip(c, 0, 255).astype(np.uint8), 'RGBA').resize((cw, ch), Image.LANCZOS), ((i % cols) * cw, (i // cols) * ch))
 atlas.save(f'public/assets/characters/{name}-{kind}-anim.webp', quality=86, method=6)
 F = json.load(open('src/frames.json'))
-F[name].setdefault('anims', {})[kind] = {'count': n, 'cols': cols, 'rows': rows, 'cellW': cw, 'cellH': ch, 'w': atlas.width, 'h': atlas.height,
+F.setdefault(name, {}).setdefault('anims', {})[kind] = {'count': n, 'cols': cols, 'rows': rows, 'cellW': cw, 'cellH': ch, 'w': atlas.width, 'h': atlas.height,
                                          'bodyPx': ch * .6, 'footPx': ch * .03, 'fps': fps, 'loop': LOOP}
 json.dump(F, open('src/frames.json', 'w'))
 prev = Image.new('RGBA', atlas.size, (40, 60, 70, 255)); prev.alpha_composite(atlas)

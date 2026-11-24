@@ -34,10 +34,29 @@ export class HananView {
     this.mat.map = this.tex; this.card.customDepthMaterial.map = this.tex;
     this.mat.needsUpdate = this.card.customDepthMaterial.needsUpdate = true;
     this.mpp = HEIGHT / FRAMES[ATLAS].frames[0][3];
+    // video-made animations (chase run, offering a hand), if present
+    this.anims = {};
+    for (const k of Object.keys(FRAMES.hanan?.anims || {})) this.anims[k] = await loadAtlas(`hanan-${k}-anim`).catch(() => null);
     this.show(0);
   }
 
+  showAnim(kind, index) {
+    const info = FRAMES.hanan.anims[kind], tex = this.anims[kind];
+    if (this.mat.map !== tex) { this.mat.map = tex; this.card.customDepthMaterial.map = tex; this.mat.needsUpdate = this.card.customDepthMaterial.needsUpdate = true; }
+    const c = THREE.MathUtils.clamp(Math.floor(index), 0, info.count - 1), col = c % info.cols, row = Math.floor(c / info.cols);
+    tex.matrixAutoUpdate = false;
+    tex.matrix.setUvTransform(col * info.cellW / info.w, 1 - (row + 1) * info.cellH / info.h, info.cellW / info.w, info.cellH / info.h, 0, 0, 0);
+    const mpp = HEIGHT / info.bodyPx;
+    // the help clip reaches to his left side of the screen, where the fallen runner is
+    this.card.scale.set(info.cellW * mpp * (kind === 'help' ? -1 : 1), info.cellH * mpp, 1);
+    this.card.position.x = 0;
+    this.card.position.y = -info.footPx * mpp;
+    this.frame = -1;
+  }
+
   show(i) {
+    if (this.mat.map !== this.tex) { this.mat.map = this.tex; this.card.customDepthMaterial.map = this.tex; this.mat.needsUpdate = this.card.customDepthMaterial.needsUpdate = true; this.frame = -1; }
+    this.card.position.y = 0;
     if (i === this.frame || !this.tex) return;
     this.frame = i;
     const info = FRAMES[ATLAS], [x, y, w, h, cx] = info.frames[i];
@@ -64,16 +83,20 @@ export class HananView {
       const from = run.world.clone().addScaledVector(fwd, -6).addScaledVector(right, 1.4);
       const to = run.world.clone().addScaledVector(fwd, -.2).addScaledVector(right, 1.05);
       P.lerpVectors(from, to, e).setY(k < 1 ? Math.abs(Math.sin(t * 9)) * .06 : 0);
-      this.show(k < 1 ? (Math.floor(t * 6) % 2 ? 1 : 0) : 2);              // hand held out
+      if (k < 1 && this.anims.chase) this.showAnim('chase', (t * 24) % FRAMES.hanan.anims.chase.count);
+      else if (k >= 1 && this.anims.help) { this.helpT = (this.helpT || 0) + dt; this.showAnim('help', this.helpT * 24); }
+      else this.show(k < 1 ? (Math.floor(t * 6) % 2 ? 1 : 0) : 2);              // hand held out
+      if (k < 1) this.helpT = 0;
       if (k >= 1) text = 'בוא, אני אעזור לך לקום!';
       this.helpReady = k >= 1;
     } else if (mode === 'chase') {
       const since = run.time - run.lastStumble;
       const back = THREE.MathUtils.clamp(run.chaserDist * .75 + 1.3, 2, 7) + Math.max(0, since - 4.5) * 5;
       P.copy(run.world).addScaledVector(fwd, -back).addScaledVector(right, .95);
-      P.y = Math.abs(Math.sin(t * 11)) * .14;                               // running bob
+      P.y = this.anims.chase ? 0 : Math.abs(Math.sin(t * 11)) * .14;        // running bob (the video run has its own)
       this.card.rotation.z = Math.sin(t * 11) * .05;
-      this.show(since < 1.4 ? 2 : (Math.floor(t * 8) % 2 ? 1 : 0));         // reaching out while shouting
+      if (this.anims.chase) this.showAnim('chase', (t * 24) % FRAMES.hanan.anims.chase.count);
+      else this.show(since < 1.4 ? 2 : (Math.floor(t * 8) % 2 ? 1 : 0));         // reaching out while shouting
       if (since < 2) text = 'תיזהר!';
       this.helpReady = false;
     } else {

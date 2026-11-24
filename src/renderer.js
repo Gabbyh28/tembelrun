@@ -196,9 +196,9 @@ export class View {
     this.sunMix = THREE.MathUtils.lerp(this.sunMix ?? 0, sun, 1 - Math.exp(-dt * 2));
     const rgt = run.seg.right;
     this.key.position.set(p.x + 1.5 + rgt.x * 9 * this.sunMix, 10 - 3 * this.sunMix, p.z + 2 + rgt.z * 9 * this.sunMix);
-    this.key.intensity = THREE.MathUtils.lerp(.55, 2.2, this.sunMix);
+    this.key.intensity = THREE.MathUtils.lerp(.55, 1.6, this.sunMix);
     this.key.color.setRGB(1, 1 - .06 * this.sunMix, 1 - .16 * this.sunMix);
-    this.hemi.intensity = THREE.MathUtils.lerp(.22, .85, this.sunMix);
+    this.hemi.intensity = THREE.MathUtils.lerp(.22, .55, this.sunMix);
     this.hemi.color.setHex(this.sunMix > .5 ? 0xe4efff : 0xbcd2ff);
     this.scene.environmentIntensity = THREE.MathUtils.lerp(this.scene.environmentIntensity, Tk.env ?? .32, .05);
     this.key.target.position.set(p.x - fwd.x * -2, 0, p.z - fwd.z * -2);

@@ -21,19 +21,21 @@ export const THEMES = {
   core: { kind: 'racks', camMax: 3.1, name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
   cold: { kind: 'racks', camMax: 3.1, name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
   power: { kind: 'racks', camMax: 3.1, name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
-  gallery: { kind: 'gallery', height: 3.7, camMax: 3.2, name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .18, fog: 0xd3dce4, fogDensity: .0045, duct: 0xf2c200, sun: true, env: .75, exposure: .9 },
+  gallery: { kind: 'gallery', height: 3.7, camMax: 3.2, name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: 0, fog: 0xb9c2ca, fogDensity: .0045, duct: 0xf2c200, sun: true, env: .5, exposure: .78 },
+  storeroom: { kind: 'storeroom', height: 5.6, name: "HANAN'S STOREROOM", he: 'המחסן של חנן', light: 0xfff0d6, intensity: 1.5, fog: 0x14110c, fogDensity: .016, duct: 0xd11f1f, env: .4 },
   warehouse: { kind: 'warehouse', height: 9, name: 'WAREHOUSE / LOGISTICS', he: 'המחסן', light: 0xfff1d8, intensity: 4.2, fog: 0x15140f, fogDensity: .012, duct: 0xf2c200, env: .45 },
   generator: { kind: 'generator', height: 6.2, name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
   plenum: { kind: 'plenum', height: 4.4, name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
 };
 const ROOM_OBSTACLES = {
   racks: { jump: 'cable', slide: 'bar', jumpP: .2, slideP: .22, pitP: .16, dodge: ['cart', 'boxes', 'ladder'] },
-  gallery: { jump: 'cable', slide: 'bar', jumpP: 0, slideP: 0, dodge: ['chair', 'chair', 'chair'] },
+  gallery: { jump: 'cable', slide: 'bar', jumpP: 0, slideP: 0, dodge: ['chair', 'table', 'chair', 'table'] },
+  storeroom: { jump: 'rjmess', slide: 'bar', jumpP: .26, slideP: .14, dodge: ['gbics', 'scrap', 'spool', 'scrap'] },
   generator: { jump: 'hose', slide: 'exhaust', jumpP: .2, slideP: .24, dodge: ['drums', 'drums', 'cart'] },
   plenum: { jump: 'condensate', slide: 'duct', jumpP: .22, slideP: .26, dodge: ['filters', 'filters', 'boxes'] },
   warehouse: { jump: 'pallets', slide: 'tunnel', jumpP: .16, slideP: .16, dodge: ['jack', 'jack', 'crate', 'wrapped'] },
 };
-const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'generator', 'power'];
+const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'storeroom', 'generator', 'power'];
 
 const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
@@ -340,7 +342,9 @@ export class Track {
     this.random = random;
     this.themeIndex = 0;
     this.turnCount = 0;
-    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: 150, turns: this.pickTurns(), theme: this.firstTheme || 'hall', first: true, distanceAtStart: 0, seed: 1 });
+    const firstTheme = this.firstTheme || 'hall';
+    this.seen = new Set([firstTheme]);
+    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: 150, turns: this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
     this.populate(first, 0);
     this.build(first);
     this.ensureChildren(first);
@@ -353,12 +357,16 @@ export class Track {
   }
 
   ensureChildren(seg) {
+    // every turn leads to a world you haven't played yet this cycle; once all
+    // have been visited the cycle starts over from the first world
+    let unseen = THEME_ORDER.filter(t => !this.seen.has(t));
+    if (!unseen.length) unseen = THEME_ORDER.filter(t => t !== seg.theme);
+    let pick = 0;
     for (const side of ['left', 'right']) {
       if (!seg.turns[side] || seg.children[side]) continue;
       const dir = (seg.dir + (side === 'right' ? 1 : 3)) % 4;
       this.turnCount++;
-      // new room every other junction
-      const theme = THEME_ORDER[(THEME_ORDER.indexOf(seg.theme) + (this.random() < .55 ? 1 : 0)) % THEME_ORDER.length];
+      const theme = unseen[Math.min(pick++, unseen.length - 1)];
       const dist = seg.distanceAtStart + seg.length;
       const length = 90 + this.random() * 70 + Math.min(60, dist * .01);
       const child = new Segment({ origin: seg.end(), dir, length, turns: this.pickTurns(), theme, distanceAtStart: dist, seed: (seg.seed * 31 + (side === 'right' ? 7 : 3)) % 100000 });
@@ -376,6 +384,8 @@ export class Track {
       if (c && side !== chosenSide) this.disposeTree(c);
     }
     const chosen = seg.children[chosenSide];
+    if (THEME_ORDER.every(t => this.seen.has(t))) this.seen = new Set();
+    this.seen.add(chosen.theme);
     this.ensureChildren(chosen);
     return chosen;
   }
@@ -411,7 +421,7 @@ export class Track {
       else if (roll < set.jumpP + set.slideP + (set.pitP || 0)) kind = 'pit';
       else kind = 'dodge';
       let free = [0, 1, 2];
-      if (kind === 'jump') push({ type: set.jump, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true });
+      if (kind === 'jump') { const jt = room === 'storeroom' && r() < .4 ? 'woodLadder' : set.jump; push({ type: jt, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true }); }
       else if (kind === 'slide') push({ type: set.slide, u, len: set.slide === 'duct' ? 1 : .7, lanes: [0, 1, 2], need: 'slide' });
       else if (kind === 'pit') push({ type: 'pit', u, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
       else if (room === 'warehouse' && r() < .35) {
@@ -435,7 +445,7 @@ export class Track {
         free = [0, 1, 2].filter(l => !lanes.includes(l));
         for (const l of lanes) {
           const t = set.dodge[r() * set.dodge.length | 0];
-          push({ type: t, u: u + (r() - .5) * .6, len: t === 'boxes' || t === 'drums' || t === 'filters' ? 1.1 : .8, lanes: [l], need: 'dodge' });
+          push({ type: t, u: u + (r() - .5) * .6, len: t === 'boxes' || t === 'drums' || t === 'filters' || t === 'table' || t === 'scrap' ? 1.1 : .8, lanes: [l], need: 'dodge' });
         }
       }
       // QSFP run leading into the obstacle

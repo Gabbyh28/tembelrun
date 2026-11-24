@@ -220,7 +220,7 @@ export function roomAssets(A) {
   R.whiteHousing = new THREE.MeshStandardMaterial({ color: 0xe6e8ea, roughness: .5 });
   R.door = new THREE.MeshStandardMaterial({ color: 0x5d6166, roughness: .6, metalness: .3 });
   R.sky = new THREE.MeshBasicMaterial({ color: 0xf6f9fc, fog: false });
-  R.tubeDay = new THREE.MeshStandardMaterial({ color: 0xe8ecef, emissive: 0xf4f7ff, emissiveIntensity: .35, roughness: .4 });
+  R.tubeDay = new THREE.MeshStandardMaterial({ color: 0xd9dde0, roughness: .35, metalness: .1 }); // lamps off: daylight only
   R.yellow = new THREE.MeshStandardMaterial({ color: 0xf0b400, roughness: .45, metalness: .1 });
   R.yellowPaint = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: .5 });
   const gf = gensetFront(a);
@@ -253,6 +253,7 @@ export function roomAssets(A) {
   R.chairGeo = null;
   R.fanRotor = rotorGeometry();
   warehouseAssets(A, R);
+  storeroomAssets(A, R);
   R.gensetSteel = gensetSteelGeometry();
   return R;
 }
@@ -382,7 +383,8 @@ export function roomObstacles(A, R) {
     for (let x = -3.2; x <= 3.2; x += 1.6) { const s = new THREE.Mesh(new THREE.BoxGeometry(.08, .2, .4), R.darkSteel); s.position.set(x, .1, 0); g.add(s); }
     kit.condensate = shadow(g);
   }
-  Object.assign(kit, warehouseObstacles(A, R));
+  Object.assign(kit, warehouseObstacles(A, R), storeroomObstacles(A, R));
+  kit.table = coffeeTable(R);
   return kit;
 }
 
@@ -395,6 +397,7 @@ export function buildRoom(kind, ctx) {
   if (kind === 'generator') return buildGenerator(ctx);
   if (kind === 'plenum') return buildPlenum(ctx);
   if (kind === 'warehouse') return buildWarehouse(ctx);
+  if (kind === 'storeroom') return buildStoreroom(ctx);
 }
 
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0);
@@ -499,7 +502,6 @@ function buildGallery(ctx) {
   for (let u = u0 + 1.8; u < uEnd; u += STEP) {
     P.set(-1.1, 3.2, -u); heads.push(M4.compose(P, Q, S1).clone());
     fixtures.push(M4.compose(P.set(0, H - .3, -u), Q, S1).clone());
-    seg.fixtures.push({ u, color: 0xf4f7ff, intensity: .18, y: H - .45 });
   }
   instanced(ctx, new THREE.CylinderGeometry(.02, .02, .35, 6), R.redPipe, heads);
   instanced(ctx, new THREE.BoxGeometry(.16, .1, 1.3), R.whiteHousing, fixtures);
@@ -822,6 +824,7 @@ export function buildWarehouse(ctx) {
 // ambient forklifts drive up and down the side zones, mast going up and down
 export function updateMovers(seg, t, dt) {
   for (const m of seg.movers) {
+    if (m.update) { m.update(t, dt); continue; }
     m.u += m.dir * m.speed * dt;
     if (m.u > m.ub) { m.u = m.ub; m.dir = -1; } else if (m.u < m.ua) { m.u = m.ua; m.dir = 1; }
     const f = m.mesh;
@@ -832,4 +835,239 @@ export function updateMovers(seg, t, dt) {
     f.userData.head.rotation.y = Math.sin(t * .8 + m.phase) * .5;
     f.userData.beacon.material.emissiveIntensity = 1.5 + Math.max(0, Math.sin(t * 9 + m.phase)) * 4;
   }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Support-wing break table: empty black-coffee cups and cigarettes     */
+/* ------------------------------------------------------------------ */
+function coffeeTable(R) {
+  const g = new THREE.Group();
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.25, .04, .75), new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: .5 }));
+  top.position.y = .74; g.add(top);
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(1.27, .025, .77), R.darkSteel); edge.position.y = .715; g.add(edge);
+  for (const x of [-.58, .58]) for (const z of [-.33, .33]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, .72, 8), R.steel); l.position.set(x, .36, z); g.add(l); }
+  const cupWhite = new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: .7 });
+  const coffee = new THREE.MeshStandardMaterial({ color: 0x1a0d06, roughness: .2 });   // dried black-coffee ring at the bottom
+  const sleeve = new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: .9 });
+  const cups = [[-.45, -.18, 0], [-.2, .2, 0], [.08, -.1, 0], [.36, .22, 1], [.5, -.2, 0]];
+  for (const [x, z, fallen] of cups) {
+    const c = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(.045, .034, .11, 16, 1, true), cupWhite); body.material.side = THREE.DoubleSide; c.add(body);
+    const bottom = new THREE.Mesh(new THREE.CircleGeometry(.033, 16), coffee); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -.05; c.add(bottom);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(.043, .039, .04, 16, 1, true), sleeve); band.position.y = -.005; c.add(band);
+    c.position.set(x, .76 + .055, z);
+    if (fallen) { c.rotation.z = Math.PI / 2; c.position.y = .76 + .045; }
+    g.add(c);
+  }
+  // ashtray full of butts
+  const tray = new THREE.Mesh(new THREE.CylinderGeometry(.075, .065, .03, 18), new THREE.MeshStandardMaterial({ color: 0x2c2f33, metalness: .6, roughness: .35 }));
+  tray.position.set(-.02, .775, .2); g.add(tray);
+  const filter = new THREE.MeshStandardMaterial({ color: 0xd98a3a, roughness: .8 }), paper = new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: .8 });
+  const ash = new THREE.MeshStandardMaterial({ color: 0x6b6b6b, roughness: 1 });
+  for (let i = 0; i < 7; i++) {
+    const b = new THREE.Group(), a = i / 7 * 6.28;
+    const f = new THREE.Mesh(new THREE.CylinderGeometry(.006, .006, .02, 6), filter); f.position.y = .01; b.add(f);
+    const pp = new THREE.Mesh(new THREE.CylinderGeometry(.006, .006, .018 + (i % 3) * .01, 6), paper); pp.position.y = .03; b.add(pp);
+    b.rotation.z = Math.PI / 2 - .4; b.rotation.y = a; b.position.set(-.02 + Math.cos(a) * .035, .79, .2 + Math.sin(a) * .035); g.add(b);
+  }
+  const ashPile = new THREE.Mesh(new THREE.SphereGeometry(.03, 8, 6), ash); ashPile.scale.y = .3; ashPile.position.set(-.02, .79, .2); g.add(ashPile);
+  // pack of cigarettes + lighter
+  const [pc, pg] = canvas(64, 96); pg.fillStyle = '#f4f4f0'; pg.fillRect(0, 0, 64, 96); pg.fillStyle = '#c0392b'; pg.fillRect(0, 0, 64, 34); pg.fillStyle = '#111'; pg.fillRect(0, 60, 64, 36); pg.fillStyle = '#fff'; pg.font = 'bold 9px Arial'; pg.fillText('SMOKING KILLS', 2, 80);
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(.055, .085, .022), new THREE.MeshStandardMaterial({ map: tex(pc), roughness: .5 }));
+  pack.rotation.set(-Math.PI / 2, 0, .5); pack.position.set(.25, .772, -.05); g.add(pack);
+  const loose = new THREE.Mesh(new THREE.CylinderGeometry(.005, .005, .08, 6), paper); loose.rotation.set(0, .3, Math.PI / 2); loose.position.set(.32, .768, .04); g.add(loose);
+  const lighter = new THREE.Mesh(new THREE.BoxGeometry(.025, .07, .012), new THREE.MeshStandardMaterial({ color: 0x1f6fd0, roughness: .3 })); lighter.rotation.set(-Math.PI / 2, 0, -.4); lighter.position.set(.12, .768, .26); g.add(lighter);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+/* ------------------------------------------------------------------ */
+/* Hanan's storeroom: GBIC boxes, scrap servers, fibre, red RJ45,       */
+/* tall wooden ladders, and Hanan doing a stock count                  */
+/* ------------------------------------------------------------------ */
+function gbicBoxTexture() {
+  const [c, g] = canvas(256, 128);
+  g.fillStyle = '#f4f5f6'; g.fillRect(0, 0, 256, 128);
+  g.fillStyle = '#1d5fa8'; g.fillRect(0, 0, 256, 30);
+  g.fillStyle = '#fff'; g.font = 'bold 20px Arial'; g.fillText('GBIC  1000BASE-SX', 10, 22);
+  g.fillStyle = '#222'; g.font = '16px monospace'; g.fillText('SFP-1G-SX  850nm', 10, 56); g.fillText('QTY: 10', 10, 80);
+  for (let x = 140; x < 246; x += 3) { g.fillRect(x, 60, Math.random() < .5 ? 1 : 2, 40); }
+  return tex(c);
+}
+function scrapTagTexture() {
+  const [c, g] = canvas(256, 64);
+  g.fillStyle = '#d62a1e'; g.fillRect(0, 0, 256, 64);
+  g.fillStyle = '#fff'; g.font = 'bold 34px Heebo, Arial'; g.textAlign = 'center'; g.fillText('לגריטה ✕', 128, 44);
+  return tex(c);
+}
+function stockLabel(text) {
+  const [c, g] = canvas(512, 128);
+  g.fillStyle = 'rgba(242,240,216,.96)'; g.fillRect(4, 4, 504, 120);
+  g.strokeStyle = '#213b4b'; g.lineWidth = 6; g.strokeRect(4, 4, 504, 120);
+  g.fillStyle = '#3b612a'; g.font = '900 34px Heebo, Arial'; g.textAlign = 'center'; g.fillText('חנן — ספירת מלאי', 256, 50);
+  g.fillStyle = '#172a38'; g.font = '500 30px Heebo, Arial'; g.fillText(text, 256, 98);
+  return tex(c);
+}
+
+function storeroomAssets(A, R) {
+  R.floor.storeroom = new THREE.MeshStandardMaterial({ map: R.floor.plenum.map, normalMap: R.floor.plenum.normalMap, color: 0x8f8c86, roughness: .55 });
+  R.gbicBox = new THREE.MeshStandardMaterial({ map: gbicBoxTexture(), roughness: .6 });
+  R.boxSide = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: .7 });
+  R.scrapTag = new THREE.MeshStandardMaterial({ map: scrapTagTexture(), roughness: .6 });
+  R.shelfGrey = new THREE.MeshStandardMaterial({ color: 0x8a9097, metalness: .6, roughness: .45 });
+  R.shelfDeck = new THREE.MeshStandardMaterial({ color: 0x6d737a, metalness: .5, roughness: .55 });
+  R.oldServer = new THREE.MeshStandardMaterial({ color: 0x3a3e44, metalness: .5, roughness: .5 });
+  R.rjRed = new THREE.MeshStandardMaterial({ color: 0xd11f1f, roughness: .45 });
+  R.fibreYellow = new THREE.MeshPhysicalMaterial({ color: 0xf2c200, roughness: .35, clearcoat: .6 });
+  R.fibreAqua = new THREE.MeshPhysicalMaterial({ color: 0x19b8c9, roughness: .35, clearcoat: .6 });
+  R.spoolWood = new THREE.MeshStandardMaterial({ color: 0xa77b4a, roughness: .85 });
+  R.ladderWood = new THREE.MeshStandardMaterial({ color: 0xc89a5e, roughness: .8 });
+  R.gbicGeo = (() => { const b = new THREE.BoxGeometry(.32, .14, .22); return b; })();
+  R.coilGeo = new THREE.TorusGeometry(.16, .045, 8, 22).rotateX(Math.PI / 2);
+}
+
+function woodenLadder(R, h = 4.2) {
+  const g = new THREE.Group();
+  for (const x of [-.22, .22]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(.06, h, .09), R.ladderWood); rail.position.set(x, h / 2, 0); g.add(rail); }
+  for (let y = .3; y < h - .1; y += .3) { const r = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .44, 8), R.ladderWood); r.rotation.z = Math.PI / 2; r.position.y = y; g.add(r); }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+function storeroomObstacles(A, R) {
+  const kit = {};
+  { // stack of GBIC boxes on a trolley
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(.9, .06, .6), R.shelfGrey); base.position.y = .14; g.add(base);
+    for (const x of [-.38, .38]) for (const z of [-.24, .24]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .04, 10), R.rubber); w.rotation.z = Math.PI / 2; w.position.set(x, .05, z); g.add(w); }
+    const mats = [R.boxSide, R.boxSide, R.boxSide, R.boxSide, R.gbicBox, R.boxSide];
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) { const b = new THREE.Mesh(R.gbicGeo, mats); b.position.set(-.18 + j * .36, .24 + i * .145, (i % 2) * .04); b.rotation.y = (i * .13) % .2; g.add(b); }
+    kit.gbics = g;
+  }
+  { // scrap servers piled on a cart with a red tag
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.0, .06, .8), R.shelfGrey); base.position.y = .18; g.add(base);
+    for (let i = 0; i < 5; i++) {
+      const sv = new THREE.Mesh(new THREE.BoxGeometry(.9 - (i % 2) * .1, .09 + (i % 3) * .045, .72), R.oldServer);
+      sv.position.set((i % 2 - .5) * .06, .25 + i * .13, 0); sv.rotation.y = (i % 3 - 1) * .08; g.add(sv);
+    }
+    const tag = new THREE.Mesh(new THREE.PlaneGeometry(.5, .13), R.scrapTag); tag.position.set(0, .55, .37); g.add(tag);
+    const tag2 = tag.clone(); tag2.rotation.y = Math.PI; tag2.position.z = -.37; g.add(tag2);
+    kit.scrap = g;
+  }
+  { // red RJ45 spaghetti across the floor (jump, stumble)
+    const g = new THREE.Group();
+    for (let k = 0; k < 6; k++) {
+      const pts = [];
+      for (let i = 0; i <= 14; i++) pts.push(new THREE.Vector3(-3.5 + i * .5, .03 + Math.abs(Math.sin(i * 1.3 + k)) * .12, Math.sin(i * .9 + k * 2) * .35));
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, .018, 6), k % 3 ? R.rjRed : R.fibreYellow));
+    }
+    for (const x of [-2.2, .4, 2.6]) { const coil = new THREE.Mesh(R.coilGeo, R.rjRed); coil.scale.setScalar(1.3); coil.position.set(x, .06, .1); g.add(coil); }
+    kit.rjmess = g;
+  }
+  { // fibre spool (dodge)
+    const g = new THREE.Group();
+    for (const z of [-.28, .28]) { const f = new THREE.Mesh(new THREE.CylinderGeometry(.55, .55, .05, 26), R.spoolWood); f.rotation.x = Math.PI / 2; f.position.set(0, .55, z); g.add(f); }
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(.42, .42, .52, 26), R.fibreYellow); core.rotation.x = Math.PI / 2; core.position.y = .55; g.add(core);
+    kit.spool = g;
+  }
+  kit.woodLadder = (() => { const g = new THREE.Group(); const l = woodenLadder(R, 4.2); l.rotation.set(Math.PI / 2, 0, Math.PI / 2); l.position.set(2.1, .06, 0); const l2 = l.clone(); l2.position.x = -2.1; g.add(l, l2); return g; })();
+  for (const k of Object.values(kit)) k.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return kit;
+}
+
+function hananStockTaker(ctx, x, u, faceRight, count) {
+  // Hanan from the start screen, at the shelves with a stock count label
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ transparent: true, alphaTest: .4, roughness: .8, side: THREE.DoubleSide });
+  mat.onBeforeCompile = s => { s.fragmentShader = s.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, diffuseColor.rgb, .6);\n#include <opaque_fragment>'); };
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, .5, 0), mat);
+  g.add(card);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: stockLabel(count), depthWrite: false }));
+  label.scale.set(1.5, .375, 1); label.position.y = 2.25; g.add(label);
+  g.position.set(x, 0, -u); g.rotation.y = faceRight ? .5 : -.5;
+  ctx.g.add(g);
+  let tex = null, frame = -1;
+  const FR = [[63, 34, 309, 824, 224.1], [476, 34, 309, 824, 635.4], [919, 41, 413, 817, 1090.5], [1328, 45, 336, 813, 1524.9]];
+  import('./player.js').then(m => m.loadAtlas('hanan-retro')).then(t => { tex = t.clone(); tex.needsUpdate = true; tex.matrixAutoUpdate = false; mat.map = tex; mat.needsUpdate = true; });
+  const seq = [0, 0, 1, 0, 3, 3, 0, 2];
+  const phase = Math.random() * 4;
+  ctx.seg.movers.push({ update(t) {
+    if (!tex) return;
+    const f = seq[Math.floor(t * 1.6 + phase) % seq.length];
+    if (f === frame) return; frame = f;
+    const [x0, y0, w, h, cx] = FR[f];
+    tex.matrix.setUvTransform(x0 / 1774, 1 - (y0 + h) / 887, w / 1774, h / 887, 0, 0, 0);
+    const mpp = 1.74 / 824;
+    card.scale.set(w * mpp, h * mpp, 1); card.position.x = -((cx - x0) / w - .5) * w * mpp;
+  } });
+}
+
+function buildStoreroom(ctx) {
+  const { g, R, HALF, u0, uEnd, seg, r } = ctx;
+  const H = 5.6, ZONE = 1.4, DEPTH = .9, BACK = HALF + ZONE + DEPTH + .15;
+  const sides = [[-1, ...sideRange(ctx, ctx.left, BACK - HALF)], [1, ...sideRange(ctx, ctx.right, BACK - HALF)]];
+  const posts = [], decks = [], gbics = [], servers = [], coils = [], coilsY = [], spoolsList = [], boxes = [];
+  Q.identity();
+  for (const [side, a, b] of sides) {
+    const fl = ctx.own(new THREE.Mesh(new THREE.PlaneGeometry(BACK - HALF, b - a), R.floor.plenum)); fl.rotation.x = -Math.PI / 2; fl.position.set(side * (HALF + (BACK - HALF) / 2), .001, -(a + b) / 2); fl.receiveShadow = true; g.add(fl);
+    sideWall(ctx, R.blocks, side, a, b, side * BACK, H, 2.4, 2.4);
+    const sx = side * (HALF + ZONE + DEPTH / 2);
+    for (let u = a + .1; u < b - .1; u += 1.8) {
+      for (const dx of [-DEPTH / 2, DEPTH / 2]) { P.set(sx + dx, 2.25, -u); posts.push(M4.compose(P, Q, S1).clone()); }
+      if (u + 1.8 > b) break;
+      for (let lv = 0; lv < 5; lv++) {
+        const y = .12 + lv * .95;
+        P.set(sx, y, -(u + .9)); decks.push(M4.compose(P, Q, S1).clone());
+        // what's on this shelf
+        const kind = r();
+        if (kind < .4) { // GBIC boxes, stacked
+          for (let i = 0; i < 5; i++) for (let k = 0; k < 2 + (r() * 3 | 0); k++) {
+            P.set(sx + (r() - .5) * .3, y + .1 + k * .145, -(u + .2 + i * .34)); gbics.push(M4.compose(P, Q.setFromAxisAngle(UP, side < 0 ? Math.PI / 2 : -Math.PI / 2), S1).clone());
+          }
+          Q.identity();
+        } else if (kind < .62) { // old servers waiting for scrap
+          for (let k = 0; k < 3; k++) { P.set(sx, y + .09 + k * .13, -(u + .9 + (r() - .5) * .2)); servers.push(M4.compose(P, Q, new THREE.Vector3(.75, .11 + (k % 2) * .05, 1.4)).clone()); }
+        } else if (kind < .82) { // cable coils: red RJ45 and fibre
+          for (let i = 0; i < 4; i++) { P.set(sx + (r() - .5) * .2, y + .1, -(u + .3 + i * .42)); const m = M4.compose(P, Q, S1).clone(); (r() < .6 ? coils : coilsY).push(m); }
+        } else if (kind < .9) { // fibre spool
+          P.set(sx, y + .45, -(u + .9)); spoolsList.push(M4.compose(P, Q.setFromAxisAngle(UP, Math.PI / 2), new THREE.Vector3(.7, .7, .7)).clone()); Q.identity();
+        } else { // plain cartons
+          P.set(sx, y + .3, -(u + .9)); boxes.push(M4.compose(P, Q, new THREE.Vector3(.7, .5, 1.3)).clone());
+        }
+      }
+    }
+    // tall wooden ladders leaning on the shelves
+    for (let u = a + 4 + r() * 6; u < b - 4; u += 9 + r() * 8) {
+      const l = woodenLadder(R, 5); l.position.set(side * (HALF + ZONE + .05), 0, -u); l.rotation.set(0, Math.PI / 2, side * -.2); g.add(l);
+    }
+    // Hanan doing the stock count by the shelves
+    for (let u = a + 10 + r() * 10; u < b - 10; u += 40 + r() * 30) {
+      const counted = ['GBIC: 1,204 ✓', 'SFP+: 386 ✓', 'לגריטה: 57', 'RJ45 אדום: 912'][r() * 4 | 0];
+      hananStockTaker(ctx, side * (HALF + .75), u, side < 0, counted);
+    }
+    // red RJ45 bundles hanging from the shelf fronts
+    for (let u = a + 2; u < b - 2; u += 2.6 + r() * 3) {
+      const pts = [new THREE.Vector3(side * (HALF + ZONE - .05), 3.9, -u), new THREE.Vector3(side * (HALF + ZONE - .12), 3.0, -u - .3), new THREE.Vector3(side * (HALF + ZONE - .05), 2.2, -u - .1)];
+      const m = ctx.own(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, .03, 6), r() < .7 ? R.rjRed : R.fibreAqua)); m.castShadow = true; g.add(m);
+    }
+  }
+  instanced(ctx, new THREE.BoxGeometry(.07, 4.5, .07), R.shelfGrey, posts);
+  instanced(ctx, new THREE.BoxGeometry(DEPTH, .04, 1.8), R.shelfDeck, decks);
+  instanced(ctx, R.gbicGeo, [R.boxSide, R.boxSide, R.boxSide, R.boxSide, R.gbicBox, R.boxSide], gbics);
+  instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.oldServer, servers);
+  instanced(ctx, R.coilGeo, R.rjRed, coils);
+  instanced(ctx, R.coilGeo, R.fibreYellow, coilsY);
+  instanced(ctx, new THREE.CylinderGeometry(.55, .55, .55, 20).rotateX(Math.PI / 2), R.fibreYellow, spoolsList);
+  instanced(ctx, new THREE.BoxGeometry(1, 1, 1), ctx.A.R.load, boxes);
+  endWall(ctx, R.blocks, ctx.left ? -HALF : -BACK, ctx.right ? HALF : BACK, uEnd + .01, H, 2.4, 2.4);
+  ceiling(ctx, R.darkSteel, H, u0, uEnd + BACK - HALF, BACK * 2 + .4, 4);
+  const lamps = [];
+  for (let u = u0 + 1.8; u < uEnd; u += STEP) {
+    P.set(0, H - .15, -u); lamps.push(M4.compose(P, Q, S1).clone());
+    seg.fixtures.push({ u, color: 0xfff0d6, intensity: 1.5, y: H - .5 });
+  }
+  instanced(ctx, new THREE.BoxGeometry(.2, .1, 1.5), R.whiteHousing, lamps);
+  instanced(ctx, new THREE.BoxGeometry(.14, .03, 1.4).translate(0, -.06, 0), ctx.A.fixtureMat(0xfff0d6), lamps);
 }

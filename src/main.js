@@ -137,7 +137,7 @@ async function boot() {
   let countdownTimer = null, overTimer = null;
   function startRun() {
     clearTimeout(overTimer);
-    audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.m4a');
+    audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.mp3');
     ['start', 'over', 'paused'].forEach(id => $(id).hidden = true);
     $('hud').hidden = false; $('pauseBtn').hidden = false;
     run.reset(character);

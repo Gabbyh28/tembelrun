@@ -34,6 +34,30 @@ export class GameAudio {
     this.nextFart = this.nextBurp = 0; this.serial = 0;
   }
 
+  // Hanan's lines. If a recording exists (assets/audio/hanan-<key>.mp3) it is used,
+  // otherwise the browser speaks the line in Hebrew.
+  hananSay(key, text) {
+    if (!this.sfxOn || !this.ctx) return;
+    this.hananClips ||= {};
+    const speak = () => {
+      if (!('speechSynthesis' in window)) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'he-IL'; u.pitch = .8; u.rate = 1.05; u.volume = Math.min(1, this.sfxVol * 1.2);
+      const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('he'));
+      if (v) u.voice = v;
+      speechSynthesis.speak(u);
+    };
+    const clip = this.hananClips[key];
+    if (clip === undefined) {
+      this.hananClips[key] = null;
+      fetch(`${import.meta.env.BASE_URL}assets/audio/hanan-${key}.mp3`).then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); })
+        .then(b => this.ctx.decodeAudioData(b)).then(buf => { this.hananClips[key] = buf; this.buffers[`hanan-${key}`] = buf; this.sample(`hanan-${key}`, .95); })
+        .catch(() => { this.hananClips[key] = false; speak(); });
+    } else if (clip) this.sample(`hanan-${key}`, .95);
+    else if (clip === false) speak();
+  }
+
   sample(name, vol = .7, rate = 1) {
     const buf = this.buffers?.[name]; if (!buf) return;
     const s = this.ctx.createBufferSource(), g = this.ctx.createGain();

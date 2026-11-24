@@ -37,6 +37,16 @@ const ROOM_OBSTACLES = {
 };
 const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'storeroom', 'generator', 'power'];
 
+// Each world lasts a random 12-32 seconds at the speed you'll be running there.
+export const runSpeedAt = d => Math.min(30, 13 + d * .0055);
+function worldLength(dist, random) {
+  const seconds = 12 + random() * 20;
+  // integrate the accelerating speed over the stay in this world
+  let d = dist, t = 0; const dt = .25;
+  while (t < seconds) { d += runSpeedAt(d) * dt; t += dt; }
+  return Math.max(70, d - dist);
+}
+
 const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
 /* ------------------------------------------------------------------ */
@@ -344,7 +354,7 @@ export class Track {
     this.turnCount = 0;
     const firstTheme = this.firstTheme || 'hall';
     this.seen = new Set([firstTheme]);
-    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: 150, turns: this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
+    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: Math.max(110, worldLength(0, this.random)), turns: this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
     this.populate(first, 0);
     this.build(first);
     this.ensureChildren(first);
@@ -368,7 +378,7 @@ export class Track {
       this.turnCount++;
       const theme = unseen[Math.min(pick++, unseen.length - 1)];
       const dist = seg.distanceAtStart + seg.length;
-      const length = 90 + this.random() * 70 + Math.min(60, dist * .01);
+      const length = worldLength(dist, this.random);
       const child = new Segment({ origin: seg.end(), dir, length, turns: this.pickTurns(), theme, distanceAtStart: dist, seed: (seg.seed * 31 + (side === 'right' ? 7 : 3)) % 100000 });
       child.parent = seg; child.side = side;
       this.populate(child, dist);

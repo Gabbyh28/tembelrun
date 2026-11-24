@@ -47,18 +47,49 @@ export class HananView {
     this.card.position.x = -((cx - x) / w - .5) * W;
   }
 
-  // Visible while the first aisle exists; returns the screen position of his head for the speech bubble.
-  update(run, t, camera) {
-    const first = [run.seg, run.oldSeg].find(s => s && s.first);
-    this.group.visible = !!first && !!this.tex;
-    if (!this.group.visible) return null;
-    first.toWorld(SPOT.u, SPOT.x, 0, this.group.position);
-    this.group.rotation.y = Math.atan2(camera.position.x - this.group.position.x, camera.position.z - this.group.position.z);
-    const running = run.mode === 'running' || run.mode === 'over';
-    // waves you off when you pass him, otherwise keeps talking
-    this.show(running && run.u > SPOT.u - 3 ? 2 : IDLE[Math.floor(t * 2) % IDLE.length]);
-    this.head.copy(this.group.position).setY(HEIGHT + .25).project(camera);
-    if (this.head.z > 1) return null;
-    return { x: (this.head.x * .5 + .5) * innerWidth, y: (-this.head.y * .5 + .5) * innerHeight };
+  // Modes: 'help' after a crash (walks over and offers a hand), 'chase' after a
+  // stumble (runs after you shouting), otherwise stands at the start line.
+  // Returns where to draw his speech bubble, and what he says.
+  update(run, t, camera, dt = .016) {
+    if (!this.tex) { this.group.visible = false; return null; }
+    const fwd = new THREE.Vector3(-Math.sin(run.camYaw), 0, -Math.cos(run.camYaw));
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    let text = null, mode = 'start';
+    if (run.mode === 'over' && (run.deathT || 0) > .35) mode = 'help';
+    else if (run.mode === 'running' && run.time - run.lastStumble < 6.5) mode = 'chase';
+    const P = this.group.position;
+    this.card.rotation.z = 0;
+    if (mode === 'help') {
+      const k = THREE.MathUtils.clamp((run.deathT - .35) / 1.2, 0, 1), e = THREE.MathUtils.smootherstep(k, 0, 1);
+      const from = run.world.clone().addScaledVector(fwd, -6).addScaledVector(right, 1.4);
+      const to = run.world.clone().addScaledVector(fwd, -.2).addScaledVector(right, 1.05);
+      P.lerpVectors(from, to, e).setY(k < 1 ? Math.abs(Math.sin(t * 9)) * .06 : 0);
+      this.show(k < 1 ? (Math.floor(t * 6) % 2 ? 1 : 0) : 2);              // hand held out
+      if (k >= 1) text = 'בוא, אני אעזור לך לקום!';
+      this.helpReady = k >= 1;
+    } else if (mode === 'chase') {
+      const since = run.time - run.lastStumble;
+      const back = THREE.MathUtils.clamp(run.chaserDist * .75 + 1.3, 2, 7) + Math.max(0, since - 4.5) * 5;
+      P.copy(run.world).addScaledVector(fwd, -back).addScaledVector(right, .95);
+      P.y = Math.abs(Math.sin(t * 11)) * .14;                               // running bob
+      this.card.rotation.z = Math.sin(t * 11) * .05;
+      this.show(since < 1.4 ? 2 : (Math.floor(t * 8) % 2 ? 1 : 0));         // reaching out while shouting
+      if (since < 2) text = 'תיזהר!';
+      this.helpReady = false;
+    } else {
+      const first = [run.seg, run.oldSeg].find(s => s && s.first);
+      if (!first) { this.group.visible = false; return null; }
+      first.toWorld(SPOT.u, SPOT.x, 0, P);
+      const running = run.mode === 'running' || run.mode === 'over';
+      this.show(running && run.u > SPOT.u - 3 ? 2 : IDLE[Math.floor(t * 2) % IDLE.length]);
+      if (run.mode === 'ready' || run.mode === 'countdown') text = 'תאסוף לי את ה־SFP בדרך!';
+      this.helpReady = false;
+    }
+    this.mode = mode;
+    this.group.visible = true;
+    this.group.rotation.y = Math.atan2(camera.position.x - P.x, camera.position.z - P.z);
+    this.head.copy(P).setY(P.y + HEIGHT + .25).project(camera);
+    if (!text || this.head.z > 1) return null;
+    return { x: (this.head.x * .5 + .5) * innerWidth, y: (-this.head.y * .5 + .5) * innerHeight, text };
   }
 }

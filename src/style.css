@@ -211,3 +211,9 @@ h1 em { text-shadow: var(--extrude-lime); display: inline-block; animation: shin
 .panel { box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 10px 0 #04070b, 0 30px 60px rgba(0,0,0,.6); animation: panel3d .45s cubic-bezier(.2,1.4,.4,1); }
 @keyframes panel3d { from { transform: perspective(900px) rotateX(-35deg) translateY(40px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .rack3d, h1 em, .panel, #roomBadge { animation: none !important; } }
+
+.revive { margin-bottom: 10px; background: linear-gradient(180deg, #ffe08a, #ffbf2e 45%, #e09a00); box-shadow: inset 0 2px 0 rgba(255,255,255,.65), 0 6px 0 #8a5a00, 0 9px 0 #5a3a00, 0 16px 30px rgba(255,190,40,.3); color: #2a1a00; animation: pulse .7s infinite alternate; }
+.revive:active { transform: translateY(5px); box-shadow: inset 0 2px 0 rgba(255,255,255,.65), 0 1px 0 #8a5a00, 0 3px 0 #5a3a00; }
+#over.modal { background: rgba(4, 7, 11, .4); backdrop-filter: blur(2px); }
+
+@media (min-width: 821px) { #over.modal { justify-content: flex-end; padding-left: max(5vw, 24px); } }

@@ -133,7 +133,7 @@ async function boot() {
   function syncTouch() { $('touchControls').hidden = !(settings.touch && (run.mode === 'running' || run.mode === 'countdown')); }
 
   /* ---------------- flow ---------------- */
-  let countdownTimer = null, overTimer = null;
+  let countdownTimer = null, overTimer = null, helpSpoken = false;
   function startRun() {
     clearTimeout(overTimer);
     audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.mp3');
@@ -179,12 +179,19 @@ async function boot() {
     $('finalChips').textContent = run.chips;
     $('newRecord').hidden = !record;
     $('hostResult').textContent = 'חנן: ' + hostLine(record ? 'record' : 'failure');
+    $('revive').hidden = run.revives <= 0;
     $('over').hidden = false; $('pauseBtn').hidden = true;
     ['powerBar', 'danger', 'turnCue'].forEach(id => $(id).hidden = true);
     syncTouch();
   }
   $('play').onclick = startRun;
   $('again').onclick = startRun;
+  $('revive').onclick = () => {
+    if (!run.revive()) return;
+    $('over').hidden = true; $('pauseBtn').hidden = false; $('hud').hidden = false;
+    audio.playMusic(true); syncTouch();
+    toast('חנן הרים אותך! ממשיכים', 1400);
+  };
   $('restart').onclick = startRun;
   $('home').onclick = goHome;
   $('quit').onclick = goHome;
@@ -228,9 +235,9 @@ async function boot() {
       audio.play(ev);
       if (ev.type === 'power') { toast(ev.name, 1800); $('powerName').textContent = character.power.name; $('powerBar').hidden = false; }
       else if (ev.type === 'powerEnd') $('powerBar').hidden = true;
-      else if (ev.type === 'stumble') { toast('מעידה!', 700); radio('stumble'); if (navigator.vibrate) navigator.vibrate(40); }
+      else if (ev.type === 'stumble') { toast('מעידה!', 700); audio.hananSay('careful', 'תיזהר!'); if (navigator.vibrate) navigator.vibrate(40); }
       else if (ev.type === 'room') showRoom(ev.name);
-      else if (ev.type === 'crash') { clearTimeout(overTimer); overTimer = setTimeout(gameOver, 1300); if (navigator.vibrate) navigator.vibrate([60, 40, 120]); }
+      else if (ev.type === 'crash') { clearTimeout(overTimer); helpSpoken = false; overTimer = setTimeout(gameOver, 4500); if (navigator.vibrate) navigator.vibrate([60, 40, 120]); }
       else if (ev.type === 'chip' && ev.combo && ev.combo % 10 === 0) toast(`רצף ×${1 + Math.min(4, ev.combo / 10)}`, 900);
     }
     run.events.length = 0;
@@ -273,10 +280,18 @@ async function boot() {
     player.update(run, t, view.camera, dt);
     ui3d.update(run, t, dt, view.camera);
     const bubble = $('hananSpeech');
-    const head = hanan.update(run, t, view.camera);
-    const talk = head && (run.mode === 'ready' || run.mode === 'countdown');
+    const head = hanan.update(run, t, view.camera, dt);
+    const talk = head && $('over').hidden && $('paused').hidden;
     bubble.hidden = !talk || (innerWidth <= 820 && !$('start').hidden);
-    if (talk) bubble.style.transform = `translate(${head.x}px, ${head.y}px) translate(-50%, -100%)`;
+    if (talk) {
+      bubble.style.transform = `translate(${head.x}px, ${head.y}px) translate(-50%, -100%)`;
+      const span = bubble.querySelector('span'); if (span.textContent !== head.text) span.textContent = head.text;
+    }
+    // Hanan offers a hand once he reaches you after a crash
+    if (hanan.helpReady && !helpSpoken) {
+      helpSpoken = true; audio.hananSay('help', 'בוא, אני אעזור לך לקום');
+      clearTimeout(overTimer); overTimer = setTimeout(gameOver, 900);
+    }
     view.update(run, dt, t);
     view.render();
   }

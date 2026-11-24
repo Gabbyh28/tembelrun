@@ -1,7 +1,7 @@
 // Runner simulation: movement along the track, turns, jumping/sliding,
 // collisions, pickups, powers and the outage that chases you.
 import * as THREE from 'three';
-import { LANES, HALF, THEMES } from './world.js';
+import { LANES, HALF, THEMES, runSpeedAt } from './world.js';
 
 const GRAVITY = -17.5, JUMP_V = 6.15, SLIDE_TIME = .78, TURN_WINDOW = 24;
 
@@ -50,7 +50,7 @@ export class Run {
     this.lateralVel = 0;
     this.chaserDist = 4; this.chaserHeat = .6; this.lastStumble = -99; this.time = 0;
     this.powerRemaining = 0; this.magnet = this.invincible = this.giant = this.rolling = this.elastic = this.prayer = false;
-    this.reason = ''; this.failKind = '';
+    this.reason = ''; this.failKind = ''; this.revives = 1; this.invulnT = 0;
     this.oldSeg = null; this.oldSegT = 0;
     this.lastTheme = this.seg.theme;
     this.shake = 0; this.debris = [];
@@ -86,7 +86,7 @@ export class Run {
     if (this.mode !== 'running') return;
     this.time += dt;
     const s = this.seg;
-    this.speed = Math.min(30, 13 + this.distance * .0055);
+    this.speed = runSpeedAt(this.distance);
     const v = this.speed * (this.giant ? 1.15 : 1);
     this.u += v * dt; this.distance += v * dt;
 
@@ -107,7 +107,8 @@ export class Run {
     else if (this.u > s.length + HALF - .7) return this.fail('wall');
 
     this.moveObstacles(dt);
-    this.collide();
+    if (this.invulnT > 0) this.invulnT -= dt;
+    if (this.invulnT <= 0) this.collide();
     this.pickups(dt);
     this.updatePower(dt);
     this.updateChaser(dt);
@@ -265,6 +266,7 @@ export class Run {
   }
 
   fail(kind) {
+    if (this.invulnT > 0 && kind !== 'wall') return;
     this.mode = 'over';
     this.failKind = kind;
     this.reason = FAIL_REASONS[kind] || '';
@@ -274,6 +276,24 @@ export class Run {
     this.shake = 1;
     this.chaserHeat = kind === 'caught' ? 1 : this.chaserHeat;
     this.emit('crash', { kind });
+  }
+
+  // Hanan helps you up: continue from where you fell, with the way ahead cleared
+  revive() {
+    if (this.revives <= 0) return false;
+    this.revives--;
+    const s = this.seg;
+    if (this.failKind === 'wall') {
+      // ran past the junction: put the runner back before it with a turn queued
+      this.u = s.length - 2; this.queuedTurn = s.turns.left ? 'left' : 'right';
+    }
+    for (const o of s.obstacles) if (o.u > this.u - 3 && o.u < this.u + 14 && !o.broken) { o.broken = true; if (o.mesh) o.mesh.visible = false; }
+    this.y = 0; this.vy = 0; this.sliding = false; this.fallY = 0;
+    this.chaserDist = 16; this.chaserHeat = 0; this.lastStumble = -99;
+    this.invulnT = 2.5; this.shake = 0;
+    this.mode = 'running';
+    this.emit('revive');
+    return true;
   }
 
   updateDeath(dt) {

@@ -30,7 +30,7 @@ export class GameAudio {
     // Avichai's original sound effects
     this.buffers = {};
     for (const name of ['fart', 'burp']) {
-      fetch(`${import.meta.env.BASE_URL}assets/audio/${name}.mp3`).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => { this.buffers[name] = buf; }).catch(() => {});
+      fetch(`${import.meta.env.BASE_URL}assets/audio/${name}.mp3?v=${__BUILD__}`).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => { this.buffers[name] = buf; }).catch(() => {});
     }
     this.nextFart = this.nextBurp = 0; this.serial = 0;
   }

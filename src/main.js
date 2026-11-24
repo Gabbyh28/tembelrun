@@ -62,7 +62,7 @@ async function boot() {
 
   /* ---------------- UI helpers ---------------- */
   const imgCache = {};
-  const atlasImage = name => imgCache[name] ||= new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = `${import.meta.env.BASE_URL}assets/characters/${name}.webp`; });
+  const atlasImage = name => imgCache[name] ||= new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = `${import.meta.env.BASE_URL}assets/characters/${name}.webp?v=${__BUILD__}`; });
   async function drawPortrait(canvas, ch) {
     const img = await atlasImage(ch.atlas);
     const [x, y, w, h] = FRAMES[ch.atlas].frames[ch.portraitFrame ?? 10];

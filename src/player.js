@@ -8,7 +8,7 @@ const loader = new THREE.TextureLoader();
 const cache = {};
 export function loadAtlas(name) {
   if (!cache[name]) {
-    cache[name] = new Promise((resolve, reject) => loader.load(`${import.meta.env.BASE_URL}assets/characters/${name}.webp`, t => {
+    cache[name] = new Promise((resolve, reject) => loader.load(`${import.meta.env.BASE_URL}assets/characters/${name}.webp?v=${__BUILD__}`, t => {
       t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
       resolve(t);
     }, undefined, reject));

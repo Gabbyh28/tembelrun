@@ -47,6 +47,22 @@ export class PlayerView {
     this.group.add(this.aura);
     scene.add(this.group);
     this.atlases = {};
+    // Avichai's gas: soft green clouds puffing out behind the giant (world space)
+    {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d');
+      for (let i = 0; i < 7; i++) {
+        const x = 40 + Math.random() * 48, y = 40 + Math.random() * 48, r = 22 + Math.random() * 20;
+        const grd = g.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, 'rgba(255,255,255,.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      this.gas = Array.from({ length: 70 }, () => {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 }));
+        s.visible = false; s.userData = { life: 0 }; scene.add(s); return s;
+      });
+      this.gasClock = 0; this.gasNext = 0;
+    }
     this.current = null;
   }
 
@@ -95,9 +111,37 @@ export class PlayerView {
     this.frameH = H;
   }
 
+  updateGas(run, dt, camera) {
+    const active = run.giant && run.mode === 'running';
+    const fwd = new THREE.Vector3(-Math.sin(run.camYaw), 0, -Math.cos(run.camYaw));
+    if (active) {
+      this.gasClock += dt;
+      while (this.gasClock >= .1) {
+        this.gasClock -= .1;
+        const s = this.gas[this.gasNext++ % this.gas.length], d = s.userData;
+        const side = new THREE.Vector3(-fwd.z, 0, fwd.x);
+        s.position.copy(run.world).addScaledVector(side, (Math.random() - .5) * .5).setY(1.05 * (this.scaleNow || 1) + run.y);
+        d.vel = fwd.clone().multiplyScalar(-3.2 - Math.random()).addScaledVector(side, (Math.random() - .5) * 1.7).setY(.55);
+        d.life = d.total = 1.55; d.size = .85 + Math.random() * .3; d.tone = Math.random();
+        s.visible = true;
+      }
+    }
+    for (const s of this.gas) {
+      const d = s.userData; if (!s.visible) continue;
+      d.life -= dt; if (d.life <= 0) { s.visible = false; continue; }
+      const age = 1 - d.life / d.total;
+      s.position.addScaledVector(d.vel, dt);
+      s.scale.setScalar(d.size * (1 + age * 1.6) * 2.1);
+      s.material.color.setRGB(.44 + d.tone * .1, .64, .21);
+      s.material.opacity = .85 * (1 - age) * Math.min(1, age * 8);
+      s.material.rotation += dt * (d.tone - .5);
+    }
+  }
+
   update(run, t, camera, dt) {
     const ch = this.character;
     if (!ch) return;
+    this.updateGas(run, dt, camera);
     // grow/shrink smoothly into the giant power
     this.scaleNow = THREE.MathUtils.damp(this.scaleNow ?? 1, run.giant ? 1.55 : 1, 6, dt);
     const scale = this.scaleNow;

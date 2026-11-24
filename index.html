@@ -116,7 +116,19 @@
     <small>ההגדרות נשמרות במכשיר הזה.</small>
   </dialog>
 
-  <div id="loading"><div class="spinner"></div><span id="loadingText">מדליקים את הדאטה סנטר…</span></div>
+  <div id="loading">
+    <div class="load-stage">
+      <div class="rack3d">
+        <div class="face front"><i></i></div><div class="face back"><i></i></div>
+        <div class="face left"></div><div class="face right"></div>
+        <div class="face top"></div><div class="face bottom"></div>
+      </div>
+      <div class="rack-shadow"></div>
+    </div>
+    <div class="logo3d" dir="ltr"><span>TEMBEL</span> <b>RUN</b></div>
+    <div class="load-bar"><i id="loadFill"></i></div>
+    <span id="loadingText">מדליקים את הדאטה סנטר…</span>
+  </div>
 </main>
 <script type="module" src="/src/main.js"></script>
 </body>

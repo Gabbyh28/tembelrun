@@ -26,6 +26,29 @@ export class GameAudio {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noise = buf;
     this.startAmbience();
+    // Avichai's original sound effects
+    this.buffers = {};
+    for (const name of ['fart', 'burp']) {
+      fetch(`${import.meta.env.BASE_URL}assets/audio/${name}.mp3`).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => { this.buffers[name] = buf; }).catch(() => {});
+    }
+    this.nextFart = this.nextBurp = 0; this.serial = 0;
+  }
+
+  sample(name, vol = .7, rate = 1) {
+    const buf = this.buffers?.[name]; if (!buf) return;
+    const s = this.ctx.createBufferSource(), g = this.ctx.createGain();
+    s.buffer = buf; s.playbackRate.value = rate; g.gain.value = vol;
+    s.connect(g).connect(this.sfx); s.start();
+  }
+
+  // the giant power farts every 1.15 s and burps every 2.9 s, like the original
+  updatePower(giant) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (!giant) { this.nextFart = this.nextBurp = 0; return; }
+    if (!this.nextFart) { this.nextFart = now + .15; this.nextBurp = now + 1.4; }
+    if (now > this.nextFart) { this.sample('fart', .72, .9 + (this.serial++ % 4) * .07); this.nextFart = now + 1.15; }
+    if (now > this.nextBurp) { this.sample('burp', .56, .93); this.nextBurp = now + 2.9; }
   }
 
   startAmbience() {

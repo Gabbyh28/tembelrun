@@ -4,6 +4,7 @@ import { Assets, Track, HALF, THEMES } from './world.js';
 import { Run } from './game.js';
 import { PlayerView, loadAtlas } from './player.js';
 import { HananView } from './host.js';
+import { UI3D } from './ui3d.js';
 import { GameAudio } from './audio.js';
 import { CHARACTERS, getCharacter, HOST_LINES } from './characters.js';
 import FRAMES from './frames.json';
@@ -27,7 +28,7 @@ async function boot() {
   await tick();
   const view = new View($('world'), settings.quality);
   view.setShadows(settings.shadows);
-  loadingText.textContent = 'מרכיבים ארונות שרתים…';
+  loadingText.textContent = 'מרכיבים ארונות שרתים…'; $('loadFill').style.width = '35%';
   await tick();
   const assets = new Assets(view.renderer, view.quality);
   const track = new Track(view.scene, assets);
@@ -35,10 +36,11 @@ async function boot() {
   const themeParam = new URLSearchParams(location.search).get('room');
   if (themeParam) track.firstTheme = themeParam;
   const player = new PlayerView(view.scene, assets);
+  const ui3d = new UI3D(view.scene);
   const audio = new GameAudio();
   const hanan = new HananView(view.scene, assets);
   let character = getCharacter(store.get('character', 'technician'));
-  loadingText.textContent = 'מעירים את הצוות…';
+  loadingText.textContent = 'מעירים את הצוות…'; $('loadFill').style.width = '75%';
   await Promise.all(CHARACTERS.map(c => loadAtlas(c.atlas)));
   await player.setCharacter(character);
   await hanan.load();
@@ -46,6 +48,8 @@ async function boot() {
   // warm up shaders so the first frames don't hitch
   view.update(run, .016, 0);
   view.renderer.compile(view.scene, view.camera);
+  $('loadFill').style.width = '100%';
+  await new Promise(r => setTimeout(r, 350));
   $('loading').classList.add('done');
   if (location.search.includes('debug')) window.__tembel = { run, track, view, player, assets };
 
@@ -138,14 +142,14 @@ async function boot() {
     run.reset(character);
     player.setCharacter(character);
     let n = 3;
-    $('countdown').hidden = false; $('countNum').textContent = n; audio.play({ type: 'tick' });
+    ui3d.showCount(String(n)); audio.play({ type: 'tick' });
     clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
       n--;
       if (n <= 0) {
-        clearInterval(countdownTimer); $('countdown').hidden = true; run.mode = 'running'; audio.play({ type: 'go' });
+        clearInterval(countdownTimer); ui3d.showCount('GO!'); run.mode = 'running'; audio.play({ type: 'go' });
         radio('start'); showRoom(THEMES[run.seg.theme].he);
-      } else { const c = $('countNum'); c.textContent = n; c.style.animation = 'none'; void c.offsetWidth; c.style.animation = ''; audio.play({ type: 'tick' }); }
+      } else { ui3d.showCount(String(n)); audio.play({ type: 'tick' }); }
     }, 650);
     syncTouch();
   }
@@ -249,6 +253,7 @@ async function boot() {
       }
     }
     audio.setDanger(run.mode === 'running' ? run.chaserHeat : 0);
+    audio.updatePower(run.giant && run.mode === 'running');
 
     // world animation
     assets.time.value = t;
@@ -266,6 +271,7 @@ async function boot() {
       run.camYaw = run.seg.yaw + Math.sin(idleYaw) * .35;
     }
     player.update(run, t, view.camera, dt);
+    ui3d.update(run, t, dt, view.camera);
     const bubble = $('hananSpeech');
     const head = hanan.update(run, t, view.camera);
     const talk = head && (run.mode === 'ready' || run.mode === 'countdown');

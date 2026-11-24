@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as TX from './textures.js';
 import { buildHarness, cordMaterial, buildTrough, spillGeometry } from './fibers.js';
-import { roomAssets, roomObstacles, buildRoom } from './rooms.js';
+import { roomAssets, roomObstacles, buildRoom, updateMovers } from './rooms.js';
 
 export const AISLE = 7.2;            // floor width between rack fronts
 export const HALF = AISLE / 2;
@@ -21,17 +21,19 @@ export const THEMES = {
   core: { kind: 'racks', name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
   cold: { kind: 'racks', name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
   power: { kind: 'racks', name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
-  gallery: { kind: 'gallery', name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .9, fog: 0xaab4bd, fogDensity: .0055, duct: 0xf2c200, sun: true, env: .5 },
-  generator: { kind: 'generator', name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
-  plenum: { kind: 'plenum', name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
+  gallery: { kind: 'gallery', height: 3.7, name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .18, fog: 0xd3dce4, fogDensity: .0045, duct: 0xf2c200, sun: true, env: .75, exposure: .9 },
+  warehouse: { kind: 'warehouse', height: 9, name: 'WAREHOUSE / LOGISTICS', he: 'המחסן', light: 0xfff1d8, intensity: 4.2, fog: 0x15140f, fogDensity: .012, duct: 0xf2c200, env: .45 },
+  generator: { kind: 'generator', height: 6.2, name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
+  plenum: { kind: 'plenum', height: 4.4, name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
 };
 const ROOM_OBSTACLES = {
   racks: { jump: 'cable', slide: 'bar', jumpP: .2, slideP: .22, pitP: .16, dodge: ['cart', 'boxes', 'ladder'] },
   gallery: { jump: 'cable', slide: 'bar', jumpP: 0, slideP: 0, dodge: ['chair', 'chair', 'chair'] },
   generator: { jump: 'hose', slide: 'exhaust', jumpP: .2, slideP: .24, dodge: ['drums', 'drums', 'cart'] },
   plenum: { jump: 'condensate', slide: 'duct', jumpP: .22, slideP: .26, dodge: ['filters', 'filters', 'boxes'] },
+  warehouse: { jump: 'pallets', slide: 'tunnel', jumpP: .16, slideP: .16, dodge: ['jack', 'jack', 'crate', 'wrapped'] },
 };
-const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'generator', 'power'];
+const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'generator', 'power'];
 
 const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
@@ -305,6 +307,7 @@ export class Segment {
     this.powerups = [];
     this.fixtures = [];
     this.cords = [];
+    this.movers = [];
     this.group = new THREE.Group();
     this.group.position.copy(this.origin);
     this.group.rotation.y = this.yaw;
@@ -411,10 +414,15 @@ export class Track {
       if (kind === 'jump') push({ type: set.jump, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true });
       else if (kind === 'slide') push({ type: set.slide, u, len: set.slide === 'duct' ? 1 : .7, lanes: [0, 1, 2], need: 'slide' });
       else if (kind === 'pit') push({ type: 'pit', u, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
+      else if (room === 'warehouse' && r() < .35) {
+        // a forklift drives across the aisle as you approach
+        const fromLeft = r() < .5, sx = fromLeft ? -HALF - 2.2 : HALF + 2.2, tx = fromLeft ? HALF + 2.6 : -HALF - 2.6;
+        push({ type: 'forklift', u, len: 1.4, lanes: [0, 1, 2], need: 'dodge', x: sx, halfW: 1.45, rotY: fromLeft ? -Math.PI / 2 : Math.PI / 2, move: { to: tx, trigger: 30, speed: 4.6 } });
+      }
       else if (room === 'gallery' && r() < .3) {
         // an office chair rolls across the aisle as you approach
         const a = r() * 3 | 0, b = a === 1 ? (r() < .5 ? 0 : 2) : 1;
-        push({ type: 'chair', u, len: .7, lanes: [a, b], need: 'dodge', x: LANES[a], move: { to: LANES[b], trigger: 26, speed: 2.4 } });
+        push({ type: 'chair', u, len: .7, lanes: [a, b], need: 'dodge', x: LANES[a], move: { to: LANES[b], trigger: 26, speed: 2.4, spin: true } });
         free = [0, 1, 2].filter(l => l !== a && l !== b);
       } else if (room === 'gallery' && r() < .3) {
         // a chair knocked over: jump it or go round
@@ -631,7 +639,8 @@ export class Track {
       else mesh = A.obstacleKit[o.type].clone();
       const x = o.x ?? (o.lanes.length === 3 ? 0 : LANES[o.lanes[0]]);
       mesh.position.set(x, 0, -o.u);
-      if (o.lanes.length === 1) mesh.rotation.y = (r() - .5) * .5;
+      if (o.rotY !== undefined) mesh.rotation.y = o.rotY;
+      else if (o.lanes.length === 1) mesh.rotation.y = (r() - .5) * .5;
       o.mesh = mesh; g.add(mesh);
     }
 
@@ -653,6 +662,8 @@ export class Track {
     this.scene.add(g);
     this.segments.add(seg);
   }
+
+  updateMovers(seg, t, dt) { if (seg.movers.length) updateMovers(seg, t, dt); }
 
   // Copy the cord instances for racks within [uFrom, uTo] to the front of the buffer.
   updateCords(seg, uFrom, uTo) {

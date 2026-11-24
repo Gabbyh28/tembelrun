@@ -18,6 +18,11 @@ export const FAIL_REASONS = {
   exhaust: 'צינור פליטה של גנרטור. היה צריך לגלוש מתחת!',
   filters: 'נכנסת בערימת פילטרים של מיזוג.',
   duct: 'תעלת אוויר נמוכה. היה צריך לגלוש מתחת!',
+  forklift: 'נדרסת כמעט על ידי מלגזה! הנהג הקירח לא ראה אותך.',
+  jack: 'מעדת על עגלת משטחים אדומה.',
+  crate: 'התנגשת בארגז ציוד ענק.',
+  wrapped: 'נכנסת במשטח עטוף בניילון.',
+  tunnel: 'קורת מדפים נמוכה. היה צריך לגלוש מתחת!',
 };
 
 export class Run {
@@ -142,7 +147,7 @@ export class Run {
       if (!o.rolling) continue;
       const d = o.move.to - o.x, step = Math.sign(d) * Math.min(Math.abs(d), o.move.speed * dt);
       o.x += step;
-      if (o.mesh) { o.mesh.position.x = o.x; o.mesh.rotation.y += step * 1.6; }
+      if (o.mesh) { o.mesh.position.x = o.x; if (o.move.spin) o.mesh.rotation.y += step * 1.6; }
     }
   }
 
@@ -154,7 +159,7 @@ export class Run {
       const reach = o.len / 2 + .35;
       if (du < -reach || du > reach) continue;
       const reachX = .95 * (this.giant ? 1.6 : 1);
-      const laneHit = o.x !== undefined ? Math.abs(this.x - o.x) < reachX : o.lanes.length === 3 || o.lanes.some(l => Math.abs(this.x - LANES[l]) < reachX);
+      const laneHit = o.x !== undefined ? Math.abs(this.x - o.x) < reachX + (o.halfW ? o.halfW - .55 : 0) : o.lanes.length === 3 || o.lanes.some(l => Math.abs(this.x - LANES[l]) < reachX);
       if (!laneHit) continue;
       if (this.invincible) {
         if (o.type === 'pit') continue; // ride over it
@@ -171,7 +176,7 @@ export class Run {
       if (o.need === 'dodge') {
         // clipping the edge of an obstacle while changing lanes is a stumble, a head-on hit ends the run
         const ox = o.x ?? LANES[o.lanes[0]], ol = LANES.reduce((b, v, i) => Math.abs(v - ox) < Math.abs(LANES[b] - ox) ? i : b, 0);
-        const edge = Math.abs(this.x - ox) > .55;
+        const edge = Math.abs(this.x - ox) > (o.halfW ?? .4) + .15;
         o.hit = true;
         if (edge) { this.stumble(); this.lane = this.x < ox ? Math.max(0, ol - 1) : Math.min(2, ol + 1); continue; }
         return this.fail(o.type);

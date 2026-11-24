@@ -219,7 +219,8 @@ export function roomAssets(A) {
   R.bluePipe = new THREE.MeshStandardMaterial({ color: 0x2c5aa8, roughness: .45 });
   R.whiteHousing = new THREE.MeshStandardMaterial({ color: 0xe6e8ea, roughness: .5 });
   R.door = new THREE.MeshStandardMaterial({ color: 0x5d6166, roughness: .6, metalness: .3 });
-  R.sky = new THREE.MeshBasicMaterial({ color: 0xdfeaf5, fog: false });
+  R.sky = new THREE.MeshBasicMaterial({ color: 0xf6f9fc, fog: false });
+  R.tubeDay = new THREE.MeshStandardMaterial({ color: 0xe8ecef, emissive: 0xf4f7ff, emissiveIntensity: .35, roughness: .4 });
   R.yellow = new THREE.MeshStandardMaterial({ color: 0xf0b400, roughness: .45, metalness: .1 });
   R.yellowPaint = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: .5 });
   const gf = gensetFront(a);
@@ -251,6 +252,7 @@ export function roomAssets(A) {
   R.windowGeo = windowGeometry();
   R.chairGeo = null;
   R.fanRotor = rotorGeometry();
+  warehouseAssets(A, R);
   R.gensetSteel = gensetSteelGeometry();
   return R;
 }
@@ -380,6 +382,7 @@ export function roomObstacles(A, R) {
     for (let x = -3.2; x <= 3.2; x += 1.6) { const s = new THREE.Mesh(new THREE.BoxGeometry(.08, .2, .4), R.darkSteel); s.position.set(x, .1, 0); g.add(s); }
     kit.condensate = shadow(g);
   }
+  Object.assign(kit, warehouseObstacles(A, R));
   return kit;
 }
 
@@ -391,6 +394,7 @@ export function buildRoom(kind, ctx) {
   if (kind === 'gallery') return buildGallery(ctx);
   if (kind === 'generator') return buildGenerator(ctx);
   if (kind === 'plenum') return buildPlenum(ctx);
+  if (kind === 'warehouse') return buildWarehouse(ctx);
 }
 
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0);
@@ -495,12 +499,12 @@ function buildGallery(ctx) {
   for (let u = u0 + 1.8; u < uEnd; u += STEP) {
     P.set(-1.1, 3.2, -u); heads.push(M4.compose(P, Q, S1).clone());
     fixtures.push(M4.compose(P.set(0, H - .3, -u), Q, S1).clone());
-    seg.fixtures.push({ u, color: 0xf4f7ff, intensity: .9, y: H - .45 });
+    seg.fixtures.push({ u, color: 0xf4f7ff, intensity: .18, y: H - .45 });
   }
   instanced(ctx, new THREE.CylinderGeometry(.02, .02, .35, 6), R.redPipe, heads);
   instanced(ctx, new THREE.BoxGeometry(.16, .1, 1.3), R.whiteHousing, fixtures);
   const tubes = fixtures.map(m => m.clone().multiply(new THREE.Matrix4().makeTranslation(0, -.06, 0)));
-  instanced(ctx, new THREE.BoxGeometry(.1, .03, 1.22), ctx.A.fixtureMat(0xf4f7ff), tubes);
+  instanced(ctx, new THREE.BoxGeometry(.1, .03, 1.22), R.tubeDay, tubes);
 }
 
 /* ---------- Generator hall (yellow) ---------- */
@@ -585,4 +589,247 @@ function buildPlenum(ctx) {
   }
   instanced(ctx, new THREE.BoxGeometry(.18, .1, 1.4), R.whiteHousing, lamps);
   instanced(ctx, new THREE.BoxGeometry(.12, .03, 1.3).translate(0, -.06, 0), ctx.A.fixtureMat(0xcfe6ff), lamps);
+}
+
+/* ------------------------------------------------------------------ */
+/* Warehouse: pallet racking, huge crates, forklifts, red pallet jacks */
+/* ------------------------------------------------------------------ */
+function crateTexture(aniso) {
+  const W = 512, H = 512, r = rand(61), [c, g] = canvas(W, H), [hc, h] = canvas(W, H);
+  h.fillStyle = '#808080'; h.fillRect(0, 0, W, H);
+  for (let y = 0; y < H; y += 64) {
+    const v = 150 + r() * 40 | 0; g.fillStyle = `rgb(${v + 30},${v - 5},${v - 55})`; g.fillRect(0, y, W, 64);
+    for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(90,55,20,${.1 + r() * .15})`; g.lineWidth = 1 + r() * 2; g.beginPath(); const yy = y + r() * 64; g.moveTo(0, yy); g.bezierCurveTo(W * .3, yy + (r() - .5) * 10, W * .6, yy + (r() - .5) * 10, W, yy + (r() - .5) * 6); g.stroke(); }
+    g.fillStyle = 'rgba(40,25,10,.6)'; g.fillRect(0, y + 61, W, 3); h.fillStyle = '#303030'; h.fillRect(0, y + 61, W, 3);
+  }
+  // battens + diagonal brace
+  g.fillStyle = 'rgba(120,80,40,.9)'; h.fillStyle = '#d0d0d0';
+  for (const [x, y, w, hh] of [[0, 0, W, 40], [0, H - 40, W, 40], [0, 0, 40, H], [W - 40, 0, 40, H]]) { g.fillRect(x, y, w, hh); h.fillRect(x, y, w, hh); }
+  g.save(); g.translate(W / 2, H / 2); g.rotate(-Math.PI / 4); g.fillRect(-W * .7, -18, W * 1.4, 36); h.save(); h.translate(W / 2, H / 2); h.rotate(-Math.PI / 4); h.fillRect(-W * .7, -18, W * 1.4, 36); h.restore(); g.restore();
+  for (let i = 0; i < 40; i++) { g.fillStyle = '#3a3a3a'; g.beginPath(); g.arc(20 + (i % 2) * (W - 40), 20 + (i >> 1) * (H / 20), 3, 0, 7); g.fill(); }
+  // stencils
+  g.fillStyle = 'rgba(20,20,20,.78)'; g.font = 'bold 44px Arial'; g.textAlign = 'center';
+  g.fillText('FRAGILE', W / 2, 120); g.font = 'bold 30px Arial'; g.fillText('↑ THIS SIDE UP ↑', W / 2, 400);
+  g.font = 'bold 26px monospace'; g.fillText('DC-RACK 42U  1.4t', W / 2, 450);
+  return { map: tex(c, { repeat: true, aniso }), normalMap: tex(heightToNormal(hc, 2), { srgb: false, repeat: true, aniso }) };
+}
+function claddingTexture(aniso) {
+  const W = 256, H = 256, [c, g] = canvas(W, H), [hc, h] = canvas(W, H);
+  g.fillStyle = '#b9bec3'; g.fillRect(0, 0, W, H); h.fillStyle = '#808080'; h.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x += 32) { g.fillStyle = 'rgba(70,76,84,.35)'; g.fillRect(x, 0, 6, H); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(x + 6, 0, 3, H); h.fillStyle = '#ffffff'; h.fillRect(x, 0, 9, H); }
+  return { map: tex(c, { repeat: true, aniso }), normalMap: tex(heightToNormal(hc, 2), { srgb: false, repeat: true, aniso }) };
+}
+function vestTexture() {
+  const [c, g] = canvas(128, 128);
+  g.fillStyle = '#e5f20a'; g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#c9ccd0'; g.fillRect(0, 70, 128, 14); g.fillRect(24, 0, 12, 128); g.fillRect(92, 0, 12, 128);
+  return tex(c);
+}
+
+export function warehouseAssets(A, R) {
+  const a = A.aniso;
+  const cr = crateTexture(a), cl = claddingTexture(a);
+  R.crate = new THREE.MeshStandardMaterial({ ...cr, roughness: .85 });
+  R.cladding = new THREE.MeshStandardMaterial({ ...cl, metalness: .5, roughness: .5 });
+  R.floor.warehouse = new THREE.MeshStandardMaterial({ map: R.floor.plenum.map, normalMap: R.floor.plenum.normalMap, color: 0xb4b2ac, roughness: .28, metalness: .05 });
+  R.wood = new THREE.MeshStandardMaterial({ color: 0xb58a55, roughness: .9 });
+  R.rackBlue = new THREE.MeshStandardMaterial({ color: 0x1f5fb0, roughness: .5, metalness: .4 });
+  R.rackOrange = new THREE.MeshStandardMaterial({ color: 0xe8661c, roughness: .5, metalness: .3 });
+  R.load = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .85 });
+  R.wrap = new THREE.MeshPhysicalMaterial({ color: 0xdde5ea, roughness: .15, metalness: 0, clearcoat: 1, transparent: true, opacity: .72 });
+  R.jackRed = new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: .45, metalness: .3 });
+  R.rubber = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: .8 });
+  R.forkYellow = new THREE.MeshStandardMaterial({ color: 0xf2a900, roughness: .45, metalness: .2 });
+  R.skin = new THREE.MeshStandardMaterial({ color: 0xd6a07a, roughness: .38 }); // bald head catches the light
+  R.vest = new THREE.MeshStandardMaterial({ map: vestTexture(), roughness: .6, emissive: 0x222200 });
+  R.jeans = new THREE.MeshStandardMaterial({ color: 0x2c3e5c, roughness: .8 });
+  R.palletGeo = palletGeometry();
+}
+
+function palletGeometry() {
+  const parts = [];
+  for (let i = 0; i < 7; i++) parts.push(new THREE.BoxGeometry(1.2, .022, .1).translate(0, .133, -.5 + i * (1 / 6)));
+  for (const z of [-.45, 0, .45]) for (const x of [-.55, 0, .55]) parts.push(new THREE.BoxGeometry(.1, .09, .1).translate(x, .067, z));
+  for (const x of [-.55, 0, .55]) parts.push(new THREE.BoxGeometry(.1, .022, 1).translate(x, .011, 0));
+  return mergeGeometries(parts.map(g => { g.deleteAttribute('uv'); return g; }));
+}
+
+export function makePalletJack(R) {
+  const g = new THREE.Group();
+  for (const x of [-.18, .18]) { const f = new THREE.Mesh(new THREE.BoxGeometry(.16, .07, 1.15), R.jackRed); f.position.set(x, .06, .1); g.add(f); const w = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .1, 10), R.rubber); w.rotation.z = Math.PI / 2; w.position.set(x, .04, .62); g.add(w); }
+  const body = new THREE.Mesh(new THREE.BoxGeometry(.52, .2, .2), R.jackRed); body.position.set(0, .14, -.52); g.add(body);
+  const pump = new THREE.Mesh(new THREE.CylinderGeometry(.07, .07, .32, 14), R.jackRed); pump.position.set(0, .36, -.55); g.add(pump);
+  const steer = new THREE.Mesh(new THREE.CylinderGeometry(.09, .09, .12, 14), R.rubber); steer.rotation.z = Math.PI / 2; steer.position.set(0, .09, -.6); g.add(steer);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 1.05, 8), R.jackRed); handle.position.set(0, .9, -.75); handle.rotation.x = -.35; g.add(handle);
+  const loop = new THREE.Mesh(new THREE.TorusGeometry(.13, .022, 8, 18), R.jackRed); loop.position.set(0, 1.45, -.94); loop.rotation.x = -.35; g.add(loop);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, .2, 8), R.rubber); grip.rotation.z = Math.PI / 2; grip.position.set(0, 1.56, -.98); g.add(grip);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+// Counterbalance forklift (front/forks toward local -z) with a bald driver.
+export function makeForklift(R, A) {
+  const g = new THREE.Group();
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); g.add(m); return m; };
+  add(new THREE.BoxGeometry(1.15, .55, 2.0), R.forkYellow, 0, .55, .1);                      // chassis
+  add(new THREE.BoxGeometry(1.15, .75, .55), R.darkSteel, 0, .85, 1.05);                      // counterweight
+  add(new THREE.BoxGeometry(1.0, .3, .9), R.forkYellow, 0, .95, .55);                         // hood
+  for (const [x, z, r] of [[-.5, -.6, .3], [.5, -.6, .3], [-.5, .85, .25], [.5, .85, .25]]) add(new THREE.CylinderGeometry(r, r, .26, 18), R.rubber, x, r, z, 0, 0, Math.PI / 2);
+  // overhead guard
+  for (const x of [-.52, .52]) { add(new THREE.BoxGeometry(.06, 1.35, .06), R.darkSteel, x, 1.75, -.45, .12); add(new THREE.BoxGeometry(.06, 1.25, .06), R.darkSteel, x, 1.7, .75, -.1); }
+  add(new THREE.BoxGeometry(1.12, .05, 1.3), R.darkSteel, 0, 2.42, .15);
+  for (let z = -.3; z < .7; z += .2) add(new THREE.BoxGeometry(1.05, .03, .04), R.darkSteel, 0, 2.38, z);
+  // mast + carriage + forks (carriage animated)
+  for (const x of [-.4, .4]) add(new THREE.BoxGeometry(.1, 2.6, .12), R.darkSteel, x, 1.4, -.95);
+  const carriage = new THREE.Group(); carriage.position.set(0, .3, -1.05); g.add(carriage);
+  carriage.add(new THREE.Mesh(new THREE.BoxGeometry(1.0, .45, .06), R.darkSteel));
+  for (const x of [-.28, .28]) { const f = new THREE.Mesh(new THREE.BoxGeometry(.12, .05, 1.1), R.darkSteel); f.position.set(x, -.2, -.55); carriage.add(f); }
+  g.userData.carriage = carriage;
+  // seat + steering wheel
+  add(new THREE.BoxGeometry(.5, .12, .45), R.rubber, 0, 1.15, .45);
+  add(new THREE.BoxGeometry(.5, .5, .1), R.rubber, 0, 1.42, .68, -.15);
+  add(new THREE.TorusGeometry(.16, .02, 8, 20), R.rubber, 0, 1.55, -.05, -1.0);
+  add(new THREE.CylinderGeometry(.025, .025, .45, 8), R.darkSteel, 0, 1.35, -.15, -.6);
+  // the bald driver
+  const d = new THREE.Group(); d.position.set(0, 1.21, .42); g.add(d);
+  const part = (geo, mat, x, y, z, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; d.add(m); return m; };
+  part(new THREE.BoxGeometry(.44, .55, .26), R.vest, 0, .36, 0);                                  // torso in hi-vis vest
+  part(new THREE.CylinderGeometry(.06, .07, .1, 10), R.skin, 0, .68, 0);                         // neck
+  const head = part(new THREE.SphereGeometry(.13, 20, 16), R.skin, 0, .82, -.01); head.scale.set(1, 1.12, 1.05);
+  for (const x of [-.13, .13]) part(new THREE.SphereGeometry(.03, 8, 6), R.skin, x, .8, .0);   // ears
+  part(new THREE.BoxGeometry(.1, .025, .02), R.darkSteel, 0, .85, -.135);                        // sunglasses
+  for (const x of [-.24, .24]) { const arm = part(new THREE.CylinderGeometry(.05, .045, .5, 8), R.vest, x, .42, -.2, -1.0); arm.rotation.z = x > 0 ? .25 : -.25; part(new THREE.SphereGeometry(.05, 8, 6), R.skin, x * .55, .36, -.43); }
+  for (const x of [-.11, .11]) { part(new THREE.CylinderGeometry(.07, .065, .5, 8), R.jeans, x, .04, -.22, -1.5); part(new THREE.CylinderGeometry(.06, .055, .45, 8), R.jeans, x, -.2, -.48, 0); }
+  g.userData.driver = d; g.userData.head = head;
+  // amber beacon
+  const beacon = add(new THREE.CylinderGeometry(.06, .07, .1, 12), new THREE.MeshStandardMaterial({ color: 0x331a00, emissive: 0xff9a1a, emissiveIntensity: 3 }), .45, 2.5, .7);
+  g.userData.beacon = beacon;
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+export function warehouseObstacles(A, R) {
+  const kit = {};
+  kit.jack = makePalletJack(R);
+  kit.forklift = makeForklift(R, A);
+  { // huge equipment crate
+    const g = new THREE.Group();
+    const p = new THREE.Mesh(R.palletGeo, R.wood); g.add(p);
+    const c = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.6, 1.05), R.crate); c.position.y = .145 + .8; g.add(c);
+    g.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    kit.crate = g;
+  }
+  { // shrink-wrapped pallet of boxed servers
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(R.palletGeo, R.wood));
+    const box = new THREE.MeshStandardMaterial({ color: 0xa98055, roughness: .9 });
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { const b = new THREE.Mesh(new THREE.BoxGeometry(.56, .42, .95), box); b.position.set(-.29 + j * .58, .37 + i * .43, 0); g.add(b); }
+    const w = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.32, 1.0), R.wrap); w.position.y = .145 + .66; g.add(w);
+    g.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    kit.wrapped = g;
+  }
+  { // empty pallets lying across the aisle (jump)
+    const g = new THREE.Group();
+    for (let i = 0; i < 6; i++) for (let k = 0; k < 2; k++) { const p = new THREE.Mesh(R.palletGeo, R.wood); p.position.set(-3 + i * 1.2, k * .145, (k ? .05 : 0)); p.rotation.y = k * .05; g.add(p); }
+    g.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    kit.pallets = g;
+  }
+  { // racking tunnel bay over the aisle (slide)
+    const g = new THREE.Group(), y = 1.3;
+    for (const x of [-3.55, 3.55]) for (const z of [-.5, .5]) { const u = new THREE.Mesh(new THREE.BoxGeometry(.1, 4.4, .1), R.rackBlue); u.position.set(x, 2.2, z); g.add(u); }
+    for (const yy of [y, y + 2.1]) for (const z of [-.5, .5]) { const b = new THREE.Mesh(new THREE.BoxGeometry(7.2, .14, .06), R.rackOrange); b.position.set(0, yy + .07, z); g.add(b); }
+    for (const yy of [y, y + 2.1]) for (let i = 0; i < 5; i++) {
+      const p = new THREE.Mesh(R.palletGeo, R.wood); p.position.set(-2.8 + i * 1.4, yy + .14, 0); g.add(p);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(1.1, .7 + (i % 3) * .2, .95), i % 2 ? R.wrap : R.crate); l.position.set(-2.8 + i * 1.4, yy + .29 + l.geometry.parameters.height / 2, 0); g.add(l);
+    }
+    const tape = new THREE.Mesh(new THREE.BoxGeometry(7.0, .1, .01), A.hazard); tape.position.set(0, y + .02, .54); g.add(tape);
+    g.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+    kit.tunnel = g;
+  }
+  return kit;
+}
+
+export function buildWarehouse(ctx) {
+  const { g, R, HALF, u0, uEnd, seg, r } = ctx;
+  const H = 9, ZONE = 2.5, RACKD = 1.1, BACK = HALF + ZONE + RACKD + .2;
+  const sides = [[-1, ...sideRange(ctx, ctx.left, BACK - HALF)], [1, ...sideRange(ctx, ctx.right, BACK - HALF)]];
+  const uprights = [], beams = [], pallets = [], loads = [], loadCols = [], crates = [], wraps = [];
+  const col = new THREE.Color();
+  for (const [side, a, b] of sides) {
+    // floor of the side zone, aisle markings
+    const fl = ctx.own(new THREE.Mesh(new THREE.PlaneGeometry(BACK - HALF, b - a), R.floor.warehouse)); fl.rotation.x = -Math.PI / 2; fl.position.set(side * (HALF + (BACK - HALF) / 2), .001, -(a + b) / 2); fl.receiveShadow = true; g.add(fl);
+    runAlong(ctx, boxZ(.12, .006), R.yellowPaint, side * (HALF - .1), .003, a, b);
+    runAlong(ctx, boxZ(.12, .006), R.yellowPaint, side * (HALF + ZONE - .1), .003, a, b);
+    sideWall(ctx, R.cladding, side, a, b, side * BACK, H, 1.2, 1.2);
+    // selective pallet racking
+    const rx = side * (HALF + ZONE + RACKD / 2);
+    Q.identity();
+    for (let u = a + .1; u < b - .1; u += 2.7) {
+      for (const dx of [-RACKD / 2, RACKD / 2]) { P.set(rx + dx, 4, -u); uprights.push(M4.compose(P, Q, S1).clone()); }
+      if (u + 2.7 > b) break;
+      for (const ly of [.15, 2.3, 4.45, 6.6]) {
+        for (const dx of [-RACKD / 2, RACKD / 2]) { P.set(rx + dx, ly, -(u + 1.35)); beams.push(M4.compose(P, Q, S1).clone()); }
+        for (const k of [0, 1]) {
+          if (r() < .12) continue;
+          const pu = u + .7 + k * 1.3, py = ly + .08;
+          P.set(rx, py, -pu); pallets.push(M4.compose(P, Q.setFromAxisAngle(UP, Math.PI / 2), S1).clone()); Q.identity();
+          const kind = r(), h = .7 + r() * 1.2;
+          const m = M4.compose(P.set(rx, py + .145 + h / 2, -pu), Q, new THREE.Vector3(1.0, h, 1.1)).clone();
+          if (kind < .22) crates.push(m); else if (kind < .45) wraps.push(m); else { loads.push(m); loadCols.push(col.setHSL(.07 + r() * .04, .35 + r() * .2, .32 + r() * .2).clone()); }
+        }
+      }
+    }
+    // floor clutter in the side zone: crates, wrapped pallets and red pallet jacks
+    for (let u = a + 3; u < b - 3; u += 4 + r() * 5) {
+      const x = side * (HALF + .9 + r() * (ZONE - 1.6)), roll = r();
+      const obj = roll < .4 ? makePalletJack(R) : roll < .7 ? ctx.A.obstacleKit.crate.clone() : ctx.A.obstacleKit.wrapped.clone();
+      obj.position.set(x, 0, -u); obj.rotation.y = (r() - .5) * 1.2 + (roll < .4 ? Math.PI / 2 : 0); g.add(obj);
+    }
+    // forklifts working the side zone
+    for (let i = 0; i < 2; i++) {
+      const f = makeForklift(R, ctx.A); f.scale.setScalar(1.05);
+      const ua = a + 8 + i * (b - a) / 2, ub = Math.min(b - 6, ua + (b - a) / 2 - 10);
+      if (ub - ua < 8) continue;
+      f.position.set(side * (HALF + ZONE / 2 + .2), 0, -ua);
+      g.add(f);
+      seg.movers.push({ mesh: f, axisX: side * (HALF + ZONE / 2 + .2), ua, ub, u: ua + r() * (ub - ua), dir: r() < .5 ? 1 : -1, speed: 2.2 + r() * 1.5, phase: r() * 10 });
+    }
+  }
+  instanced(ctx, new THREE.BoxGeometry(.09, 8, .09), R.rackBlue, uprights);
+  instanced(ctx, new THREE.BoxGeometry(.06, .13, 2.7), R.rackOrange, beams);
+  instanced(ctx, R.palletGeo, R.wood, pallets);
+  const li = instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.load, loads);
+  if (li) { loadCols.forEach((c, i) => li.setColorAt(i, c)); li.instanceColor.needsUpdate = true; }
+  instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.crate, crates);
+  instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.wrap, wraps);
+  // end wall with a loading-dock roller door
+  endWall(ctx, R.cladding, ctx.left ? -HALF : -BACK, ctx.right ? HALF : BACK, uEnd + .01, H, 1.2, 1.2);
+  const door = ctx.own(new THREE.Mesh(new THREE.PlaneGeometry(4, 4.5), R.galv)); door.position.set(0, 2.25, -(uEnd - .005)); g.add(door);
+  const dz = planeAlong(ctx.own, ctx.A.hazard, 4.2, .25, 5, 1); dz.position.set(0, 4.6, -(uEnd - .006)); g.add(dz);
+  ceiling(ctx, R.darkSteel, H, u0, uEnd + BACK - HALF, BACK * 2 + .4, 4);
+  const trusses = [], lamps = [];
+  Q.identity();
+  for (let u = u0 + 2; u < uEnd; u += 6) { P.set(0, H - .5, -u); trusses.push(M4.compose(P, Q, S1).clone()); }
+  instanced(ctx, new THREE.BoxGeometry(BACK * 2, .7, .18), R.darkSteel, trusses);
+  for (let u = u0 + 3; u < uEnd; u += 7.2) {
+    for (const x of [-2.2, 2.2, -HALF - ZONE - .5, HALF + ZONE + .5]) { P.set(x, H - 1.2, -u); lamps.push(M4.compose(P, Q, S1).clone()); }
+    seg.fixtures.push({ u, color: 0xfff1d8, intensity: 4.2, y: H - 1.4 });
+  }
+  instanced(ctx, new THREE.CylinderGeometry(.32, .2, .35, 20), R.darkSteel, lamps);
+  instanced(ctx, new THREE.CylinderGeometry(.2, .2, .02, 20).translate(0, -.18, 0), ctx.A.fixtureMat(0xfff1d8), lamps);
+}
+
+// ambient forklifts drive up and down the side zones, mast going up and down
+export function updateMovers(seg, t, dt) {
+  for (const m of seg.movers) {
+    m.u += m.dir * m.speed * dt;
+    if (m.u > m.ub) { m.u = m.ub; m.dir = -1; } else if (m.u < m.ua) { m.u = m.ua; m.dir = 1; }
+    const f = m.mesh;
+    f.position.z = -m.u;
+    const target = m.dir > 0 ? 0 : Math.PI;            // forks lead the way
+    f.rotation.y += (target - f.rotation.y) * Math.min(1, dt * 3);
+    f.userData.carriage.position.y = .3 + (Math.sin(t * .6 + m.phase) * .5 + .5) * 1.6;
+    f.userData.head.rotation.y = Math.sin(t * .8 + m.phase) * .5;
+    f.userData.beacon.material.emissiveIntensity = 1.5 + Math.max(0, Math.sin(t * 9 + m.phase)) * 4;
+  }
 }

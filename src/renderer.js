@@ -6,7 +6,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { CEILING, THEMES } from './world.js';
+import { CEILING, THEMES, HALF } from './world.js';
 
 const FilmShader = {
   uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uDanger: { value: 0 }, uVignette: { value: .9 }, uAberration: { value: .0012 } },
@@ -142,24 +142,48 @@ export class View {
     });
   }
 
+  // Keep the camera inside walkable space: the current aisle (incl. its junction
+  // square) or the aisle just left. Otherwise it swings through corner walls on turns.
+  constrain(v, run) {
+    const m = .45;
+    const inside = (s, minU, maxU) => { const l = s.toLocal(v); return Math.abs(l.x) <= HALF - m && l.u >= minU && l.u <= maxU ? l : null; };
+    const s = run.seg;
+    if (inside(s, s.first ? -1e9 : -HALF + m, s.length + HALF - m)) return;
+    if (run.oldSeg && inside(run.oldSeg, -1e9, run.oldSeg.length + HALF - m)) return;
+    const l = s.toLocal(v);
+    const u = THREE.MathUtils.clamp(l.u, s.first ? -1e9 : -HALF + m, s.length + HALF - m), x = THREE.MathUtils.clamp(l.x, -HALF + m, HALF - m);
+    const y = v.y; s.toWorld(u, x, y, v);
+  }
+
+  // stay under the lowest ceiling around (the gallery slab is only 3.7 m)
+  ceilingClamp(v, run) {
+    const hs = [THEMES[run.seg.theme].height ?? 4.6]; if (run.oldSeg) hs.push(THEMES[run.oldSeg.theme].height ?? 4.6);
+    v.y = Math.min(v.y, Math.min(...hs) - .35);
+  }
+
   update(run, dt, t) {
     const yaw = run.camYaw;
     const fwd = this.tmp.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     const p = run.world;
     const sliding = run.sliding ? 1 : 0;
-    const back = run.giant ? 7.5 : 5.4, up = run.giant ? 4.2 : 2.85 - sliding * .35;
-    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .35, p.z - fwd.z * back);
+    const back = run.giant ? 8.6 : 5.4, up = run.giant ? 5.4 : 2.85 - sliding * .35;
+    // rise with the jump so the runner never hides the aisle ahead
+    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .95, p.z - fwd.z * back);
     if (run.mode === 'over') {
       // pull back and look down at the scene
       desired.set(p.x - fwd.x * (back + 2.2), up + 1.4, p.z - fwd.z * (back + 2.2));
     }
+    this.constrain(desired, run);
     this.camPos.lerp(desired, 1 - Math.exp(-dt * (run.mode === 'over' ? 2 : 14)));
+    this.constrain(this.camPos, run);
+    this.ceilingClamp(this.camPos, run);
     this.camera.position.copy(this.camPos);
     if (run.shake > 0) {
       const s = run.shake * .12;
       this.camera.position.x += (Math.random() - .5) * s; this.camera.position.y += (Math.random() - .5) * s;
     }
-    this.lookAt.set(p.x + fwd.x * 7, 1.1 + run.y * .5, p.z + fwd.z * 7);
+    const ahead = run.giant ? 13 : 8;
+    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * .3, p.z + fwd.z * ahead);
     this.camera.lookAt(this.lookAt);
     // lean slightly into lane changes / turns
     this.camera.rotateZ(THREE.MathUtils.clamp(-run.lateralVel * .006, -.05, .05));
@@ -172,7 +196,8 @@ export class View {
     this.key.position.set(p.x + 1.5 + rgt.x * 9 * this.sunMix, 10 - 3 * this.sunMix, p.z + 2 + rgt.z * 9 * this.sunMix);
     this.key.intensity = THREE.MathUtils.lerp(.55, 2.2, this.sunMix);
     this.key.color.setRGB(1, 1 - .06 * this.sunMix, 1 - .16 * this.sunMix);
-    this.hemi.intensity = THREE.MathUtils.lerp(.22, .4, this.sunMix);
+    this.hemi.intensity = THREE.MathUtils.lerp(.22, .85, this.sunMix);
+    this.hemi.color.setHex(this.sunMix > .5 ? 0xe4efff : 0xbcd2ff);
     this.scene.environmentIntensity = THREE.MathUtils.lerp(this.scene.environmentIntensity, Tk.env ?? .32, .05);
     this.key.target.position.set(p.x - fwd.x * -2, 0, p.z - fwd.z * -2);
     this.placeLights(run);
@@ -188,7 +213,7 @@ export class View {
     this.scene.fog.color.lerp(this.fogColor, 1 - Math.exp(-dt * 1.5));
     this.scene.background.copy(this.scene.fog.color);
     this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, run.prayer ? .012 : (T.fogDensity ?? .022), .05);
-    this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : .95, .05);
+    this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : (Tk.exposure ?? .95), .05);
 
     // drift dust (strong airflow in the plenum)
     {

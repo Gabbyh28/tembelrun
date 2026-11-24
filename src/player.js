@@ -83,7 +83,7 @@ export class PlayerView {
   update(run, t, camera, dt) {
     const ch = this.character;
     if (!ch) return;
-    const scale = run.giant ? 1.85 : 1;
+    const scale = run.giant ? 1.55 : 1;
     if (run.rolling && ch.rollAtlas) {
       const f = Math.floor(run.distance * .9) % 8;
       this.showFrame(ch.rollAtlas, f, scale);

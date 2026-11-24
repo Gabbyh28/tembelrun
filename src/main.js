@@ -61,13 +61,6 @@ async function boot() {
     const cw = w * 1.1, ch2 = cw;
     g.drawImage(img, x + w / 2 - cw / 2, y - 4, cw, ch2, 0, 0, canvas.width, canvas.height);
   }
-  (async () => {
-    // Hanan's face for the compact start card on phones
-    const img = await atlasImage('hanan-retro');
-    const [x, y, w] = FRAMES['hanan-retro'].frames[0];
-    const c = $('hananFace'), g = c.getContext('2d');
-    g.drawImage(img, x + w * .3, y, w * .45, w * .45, 0, 0, c.width, c.height);
-  })();
   function refreshCharacterButton() {
     $('characterName').textContent = character.name;
     $('characterPower').textContent = '⚡ ' + character.power.name;
@@ -264,6 +257,7 @@ async function boot() {
       if (seg === run.seg || seg.parent === run.seg) track.updateChips(seg, t);
       const rel = seg === run.seg ? run.u : seg.parent === run.seg ? run.u - run.seg.length : seg === run.oldSeg ? seg.length + HALF : -1e9;
       track.updateCords(seg, rel - 6, rel + 34);
+      if (rel > -60) track.updateMovers(seg, t, dt);
       for (const p of seg.powerups) if (p.mesh) { p.mesh.rotation.y = t * 1.5; p.mesh.position.y = p.y + Math.sin(t * 3) * .12; p.mesh.getObjectByName('spin')?.rotation.set(t, t * .7, 0); }
     }
     if (run.mode === 'ready') {

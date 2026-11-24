@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { View } from './renderer.js';
-import { Assets, Track } from './world.js';
+import { Assets, Track, HALF } from './world.js';
 import { Run } from './game.js';
 import { PlayerView, loadAtlas } from './player.js';
 import { HananView } from './host.js';
@@ -29,9 +29,11 @@ async function boot() {
   view.setShadows(settings.shadows);
   loadingText.textContent = 'מרכיבים ארונות שרתים…';
   await tick();
-  const assets = new Assets(view.renderer);
+  const assets = new Assets(view.renderer, view.quality);
   const track = new Track(view.scene, assets);
   const run = new Run(track);
+  const themeParam = new URLSearchParams(location.search).get('room');
+  if (themeParam) track.firstTheme = themeParam;
   const player = new PlayerView(view.scene, assets);
   const audio = new GameAudio();
   const hanan = new HananView(view.scene, assets);
@@ -260,6 +262,8 @@ async function boot() {
     assets.prayer.value = THREE.MathUtils.lerp(assets.prayer.value, run.prayer ? 1 : 0, .08);
     for (const seg of track.segments) {
       if (seg === run.seg || seg.parent === run.seg) track.updateChips(seg, t);
+      const rel = seg === run.seg ? run.u : seg.parent === run.seg ? run.u - run.seg.length : seg === run.oldSeg ? seg.length + HALF : -1e9;
+      track.updateCords(seg, rel - 6, rel + 34);
       for (const p of seg.powerups) if (p.mesh) { p.mesh.rotation.y = t * 1.5; p.mesh.position.y = p.y + Math.sin(t * 3) * .12; p.mesh.getObjectByName('spin')?.rotation.set(t, t * .7, 0); }
     }
     if (run.mode === 'ready') {

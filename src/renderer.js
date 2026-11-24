@@ -62,6 +62,19 @@ export class View {
     this.outage = new THREE.PointLight(0xff2a14, 0, 14, 2);
     this.scene.add(this.outage);
 
+    // airborne dust catching the light: world-anchored, wrapped in a box around the runner
+    {
+      const N = 700, pos = new Float32Array(N * 3);
+      this.dustSeed = Array.from({ length: N }, () => [Math.random() * 14, Math.random() * 3.8 + .2, Math.random() * 40, Math.random() * 6.28]);
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const c = document.createElement('canvas'); c.width = c.height = 32;
+      const x = c.getContext('2d'), grd = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = grd; x.fillRect(0, 0, 32, 32);
+      this.dust = new THREE.Points(g, new THREE.PointsMaterial({ size: .028, map: new THREE.CanvasTexture(c), transparent: true, opacity: .5, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xcfe0ff }));
+      this.dust.frustumCulled = false;
+      this.scene.add(this.dust);
+    }
+
     this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), .42, .5, .9);
@@ -168,6 +181,17 @@ export class View {
     this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, run.prayer ? .012 : .022, .05);
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : .95, .05);
 
+    // drift dust
+    {
+      const a = this.dust.geometry.attributes.position, S = this.dustSeed;
+      for (let i = 0; i < S.length; i++) {
+        const s = S[i];
+        const wx = s[0] + Math.sin(t * .2 + s[3]) * .4, wz = s[2] + t * .15, wy = s[1] + Math.sin(t * .3 + s[3] * 2) * .15;
+        const lx = ((wx - p.x) % 14 + 14) % 14 - 7, lz = ((wz - p.z) % 40 + 40) % 40 - 20;
+        a.setXYZ(i, p.x + lx, wy, p.z + lz);
+      }
+      a.needsUpdate = true;
+    }
     this.film.uniforms.uTime.value = t;
     const danger = THREE.MathUtils.smoothstep(heat, .45, 1);
     this.film.uniforms.uDanger.value = THREE.MathUtils.lerp(this.film.uniforms.uDanger.value, danger * (run.mode === 'running' || run.mode === 'over' ? 1 : 0), .1);

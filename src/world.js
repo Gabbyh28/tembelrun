@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as TX from './textures.js';
+import { buildHarness, cordMaterial, buildTrough, spillGeometry } from './fibers.js';
 
 export const AISLE = 7.2;            // floor width between rack fronts
 export const HALF = AISLE / 2;
@@ -28,7 +29,8 @@ const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 214748364
 /* Shared assets                                                       */
 /* ------------------------------------------------------------------ */
 export class Assets {
-  constructor(renderer) {
+  constructor(renderer, quality = 'high') {
+    this.detail = quality === 'smooth' ? .5 : 1;
     const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     this.aniso = aniso;
     const floor = TX.floorTextures(aniso);
@@ -45,6 +47,10 @@ export class Assets {
     this.ducts = {};
     this.fixtureMats = {};
     this.rackFronts = {};
+    this.harness = {};
+    this.cordMat = cordMaterial();
+    this.spillGeo = spillGeometry();
+    this.spillMats = {};
     this.time = { value: 0 };
     this.prayer = { value: 0 };
     for (const t of THEME_ORDER) for (let v = 0; v < 4; v++) this.rackFront(t, v);
@@ -65,7 +71,8 @@ export class Assets {
   rackFront(theme, v) {
     const key = theme + v;
     if (!this.rackFronts[key]) {
-      const t = TX.rackFrontTextures(theme, v, this.aniso);
+      const { ports, ...t } = TX.rackFrontTextures(theme, v, this.aniso);
+      this.harness[key] = buildHarness(ports, theme, 977 + v * 31 + theme.length * 7, this.detail);
       const m = new THREE.MeshStandardMaterial({ ...t, color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.6, metalness: .45, roughness: .55, normalScale: new THREE.Vector2(.8, .8) });
       const time = this.time, prayer = this.prayer;
       m.onBeforeCompile = s => {
@@ -88,6 +95,9 @@ export class Assets {
       this.rackFronts[key] = [this.rackBody, this.rackBody, this.rackBody, this.rackBody, m, this.rackBody];
     }
     return this.rackFronts[key];
+  }
+  spillMat(color) {
+    return this.spillMats[color] ||= new THREE.MeshPhysicalMaterial({ color, roughness: .4, clearcoat: .5, clearcoatRoughness: .3 });
   }
   duct(color) {
     return this.ducts[color] ||= new THREE.MeshStandardMaterial({ color, roughness: .45, metalness: .05 });
@@ -281,6 +291,7 @@ export class Segment {
     this.chips = [];
     this.powerups = [];
     this.fixtures = [];
+    this.cords = [];
     this.group = new THREE.Group();
     this.group.position.copy(this.origin);
     this.group.rotation.y = this.yaw;
@@ -313,7 +324,7 @@ export class Track {
     this.random = random;
     this.themeIndex = 0;
     this.turnCount = 0;
-    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: 150, turns: this.pickTurns(), theme: 'hall', first: true, distanceAtStart: 0, seed: 1 });
+    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: 150, turns: this.pickTurns(), theme: this.firstTheme || 'hall', first: true, distanceAtStart: 0, seed: 1 });
     this.populate(first, 0);
     this.build(first);
     this.ensureChildren(first);
@@ -464,7 +475,7 @@ export class Track {
       for (let i = 0; i < n; i++) {
         if (run-- <= 0) { v = pickVariant(); run = 1 + (r() * 4 | 0); }
         p.set(row.side * (HALF + RACK.d / 2), RACK.h / 2 + .02, -(row.from + RACK.w / 2 + i * RACK.w));
-        buckets[v].push(m4.compose(p, q, s1).clone());
+        buckets[v].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
       }
     }
     // end wall facing the runner
@@ -473,15 +484,24 @@ export class Track {
     q.identity();
     for (let i = 0; i < nWall; i++) {
       p.set(wallFrom + RACK.w / 2 + i * RACK.w, RACK.h / 2 + .02, -(uEnd + RACK.d / 2));
-      buckets[pickVariant()].push(m4.compose(p, q, s1).clone());
+      buckets[pickVariant()].push({ m: m4.compose(p, q, s1).clone(), u: -p.z });
     }
     buckets.forEach((mats, v) => {
       if (!mats.length) return;
       const im = new THREE.InstancedMesh(A.rackGeo, variantMats[v], mats.length);
-      mats.forEach((m, i) => im.setMatrixAt(i, m));
+      mats.forEach((e, i) => im.setMatrixAt(i, e.m));
       im.castShadow = true; im.receiveShadow = true;
       im.computeBoundingSphere();
       g.add(im);
+      // 3D patch cords, drawn only for racks near the runner (see updateCords)
+      const hg = A.harness[seg.theme + v];
+      if (hg) {
+        const sorted = mats.slice().sort((a, b) => a.u - b.u);
+        const cm = new THREE.InstancedMesh(hg, A.cordMat, sorted.length);
+        cm.count = 0; cm.frustumCulled = false; cm.castShadow = false; cm.receiveShadow = true;
+        seg.cords.push({ mesh: cm, list: sorted, start: -1, end: -1 });
+        g.add(cm);
+      }
     });
 
     // Containment panels above racks + fibre duct along each row
@@ -495,10 +515,17 @@ export class Track {
       m.rotation.y = row.side < 0 ? Math.PI / 2 : -Math.PI / 2;
       m.position.set(row.side * (HALF + .04), RACK.h + panelH / 2 + .02, -(row.from + len / 2));
       g.add(m);
-      const d = own(new THREE.Mesh(new THREE.BoxGeometry(.28, .12, len), duct));
-      d.position.set(row.side * (HALF - .2), 2.62, -(row.from + len / 2)); d.castShadow = true; g.add(d);
-      const lip = own(new THREE.Mesh(new THREE.BoxGeometry(.03, .1, len), duct));
-      lip.position.set(row.side * (HALF - .33), 2.68, -(row.from + len / 2)); g.add(lip);
+      const tr = buildTrough(len, T.duct, A.time, { seed: seg.seed + row.side, fibreColor: T.duct });
+      tr.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
+      tr.position.set(row.side * (HALF - .2), 2.56, -row.from); g.add(tr);
+      // spill-outs dropping fibre into every third rack
+      const n = Math.floor(len / 3);
+      if (n > 0) {
+        const sp = new THREE.InstancedMesh(A.spillGeo, A.spillMat(T.duct), n);
+        const sq = new THREE.Quaternion().setFromAxisAngle(up, row.side < 0 ? Math.PI : 0);
+        for (let i = 0; i < n; i++) { p.set(row.side * (HALF - .2), 2.56, -(row.from + 1.5 + i * 3)); sp.setMatrixAt(i, m4.compose(p, sq, s1)); }
+        sp.castShadow = true; sp.computeBoundingSphere(); g.add(sp);
+      }
     }
     {
       const w = wallTo - wallFrom;
@@ -524,7 +551,9 @@ export class Track {
       const m = own(new THREE.Mesh(geo, A.ladder)); m.position.set(0, 3.25, -(u0 + len / 2)); g.add(m);
       const c = own(new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, len, 10, 1, true), A.cableBlack));
       c.rotation.x = Math.PI / 2; c.position.set(.08, 3.38, -(u0 + len / 2)); g.add(c);
-      const f = own(new THREE.Mesh(new THREE.BoxGeometry(.22, .1, len), duct)); f.position.set(-.16, 3.32, -(u0 + len / 2)); g.add(f);
+      const f = buildTrough(len, T.duct, A.time, { width: .24, height: .09, fibres: 7, seed: seg.seed + 5, fibreColor: T.duct });
+      f.traverse(o => { if (o.isMesh) o.userData.ownGeo = true; });
+      f.position.set(-.18, 3.27, -u0); g.add(f);
     }
 
     // Linear LED fixtures (emissive + real lights pooled in game)
@@ -587,6 +616,20 @@ export class Track {
     }
     this.scene.add(g);
     this.segments.add(seg);
+  }
+
+  // Copy the cord instances for racks within [uFrom, uTo] to the front of the buffer.
+  updateCords(seg, uFrom, uTo) {
+    for (const c of seg.cords) {
+      const L = c.list;
+      let a = 0; while (a < L.length && L[a].u < uFrom) a++;
+      let b = a; while (b < L.length && L[b].u <= uTo) b++;
+      if (a === c.start && b === c.end) continue;
+      c.start = a; c.end = b;
+      for (let i = a; i < b; i++) c.mesh.setMatrixAt(i - a, L[i].m);
+      c.mesh.count = b - a;
+      c.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   updateChips(seg, t, magnetTarget) {

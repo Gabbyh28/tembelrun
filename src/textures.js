@@ -242,6 +242,7 @@ export function rackFrontTextures(theme, variant, aniso) {
   e.fillStyle = '#000'; e.fillRect(0, 0, RW, RH);
   h.fillStyle = '#5a5a5a'; h.fillRect(0, 0, RW, RH);
   const x = 30, w = RW - 60;
+  let ports = [];
   // mounting rails
   g.fillStyle = '#2c3036'; g.fillRect(x - 10, 0, 10, RH); g.fillRect(x + w, 0, 10, RH);
   for (let yy = TOPPAD; yy < RH - 40; yy += U / 3) { g.fillStyle = '#0d0e10'; g.fillRect(x - 7, yy, 4, 4); g.fillRect(x + w + 3, yy, 4, 4); }
@@ -271,7 +272,8 @@ export function rackFrontTextures(theme, variant, aniso) {
       y += units * U;
       if (theme === 'power' && y > RH * .5) break;
     }
-    if (cables.length) drawPatchCables(g, h, cables, r, theme === 'core' ? ['#f5c400', '#f5c400', '#28a8e0', '#e8e8e8', '#e35d2a'] : ['#28a8e0', '#e8e8e8', '#5dbb4b']);
+    // patch cords are real 3D geometry now (see world.js); keep the port positions
+    ports = cables.map(([px, py]) => ({ x: (px / RW - .5) * .6, y: (.5 - py / RH) * 2.2 }));
     if (theme === 'power') drawUPS(g, e, h, x, RH * .52, w, RH * .45, r, pal);
   }
   // door frame + perforated door (rear-lit gives depth)
@@ -292,6 +294,7 @@ export function rackFrontTextures(theme, variant, aniso) {
     emissiveMap: tex(ec, { aniso }),
     normalMap: tex(heightToNormal(hc, 2.2), { srgb: false, aniso }),
     roughnessMap: tex(rough[0], { srgb: false, aniso }),
+    ports,
   };
 }
 

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { LANES, HALF, THEMES } from './world.js';
 
-const GRAVITY = -30, JUMP_V = 9.6, SLIDE_TIME = .78, TURN_WINDOW = 24;
+const GRAVITY = -17.5, JUMP_V = 6.15, SLIDE_TIME = .78, TURN_WINDOW = 24;
 
 export const FAIL_REASONS = {
   wall: 'נכנסת בשורת ארונות. לא פנית בזמן!',
@@ -71,7 +71,7 @@ export class Run {
       if (this.y <= .001 && !this.rolling) { this.vy = JUMP_V; this.sliding = false; this.slideT = 0; this.emit('jump'); }
     } else if (action === 'slide') {
       if (this.rolling) return;
-      if (this.y > .001) this.vy = Math.min(this.vy, -16);
+      if (this.y > .001) this.vy = Math.min(this.vy, -11);
       this.sliding = true; this.slideT = SLIDE_TIME; this.emit('slide');
     }
   }

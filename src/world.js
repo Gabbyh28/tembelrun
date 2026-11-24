@@ -17,11 +17,11 @@ const FIXTURE_STEP = 3.6;
 const DIRS = [new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)];
 
 export const THEMES = {
-  hall: { kind: 'racks', name: 'SERVER HALL B', he: 'אולם שרתים B', light: 0xe8f1ff, intensity: 1, fog: 0x0a0f15, duct: 0xf2c200 },
-  core: { kind: 'racks', name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
-  cold: { kind: 'racks', name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
-  power: { kind: 'racks', name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
-  gallery: { kind: 'gallery', height: 3.7, name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .18, fog: 0xd3dce4, fogDensity: .0045, duct: 0xf2c200, sun: true, env: .75, exposure: .9 },
+  hall: { kind: 'racks', camMax: 3.1, name: 'SERVER HALL B', he: 'אולם שרתים B', light: 0xe8f1ff, intensity: 1, fog: 0x0a0f15, duct: 0xf2c200 },
+  core: { kind: 'racks', camMax: 3.1, name: 'NETWORK CORE', he: 'ליבת הרשת', light: 0xfff1dc, intensity: .95, fog: 0x0e0d0b, duct: 0xf2c200 },
+  cold: { kind: 'racks', camMax: 3.1, name: 'COLD AISLE C', he: 'מעבר קר C', light: 0xd6ecff, intensity: 1.05, fog: 0x08111a, duct: 0x2aa8e0 },
+  power: { kind: 'racks', camMax: 3.1, name: 'POWER / UPS', he: 'חדר חשמל ו־UPS', light: 0xffe2c0, intensity: .9, fog: 0x120c08, duct: 0xff7a1a },
+  gallery: { kind: 'gallery', height: 3.7, camMax: 3.2, name: 'SUPPORT WING', he: 'מבנה תמך', light: 0xf4f7ff, intensity: .18, fog: 0xd3dce4, fogDensity: .0045, duct: 0xf2c200, sun: true, env: .75, exposure: .9 },
   warehouse: { kind: 'warehouse', height: 9, name: 'WAREHOUSE / LOGISTICS', he: 'המחסן', light: 0xfff1d8, intensity: 4.2, fog: 0x15140f, fogDensity: .012, duct: 0xf2c200, env: .45 },
   generator: { kind: 'generator', height: 6.2, name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
   plenum: { kind: 'plenum', height: 4.4, name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
@@ -448,7 +448,7 @@ export class Track {
       }
       if (kind === 'cable' || kind === 'pit') {
         // arc of chips over the jump
-        for (let i = -2; i <= 2; i++) seg.chips.push({ u: u + i * 1.5, x: LANES[chipLane], y: .9 + (1 - (i * i) / 4) * 1.2, taken: false });
+        for (let i = -2; i <= 2; i++) seg.chips.push({ u: u + i * 1.5, x: LANES[chipLane], y: .8 + (1 - (i * i) / 4) * .75, taken: false });
       }
       if (r() < .3) chipLane = Math.max(0, Math.min(2, chipLane + (r() < .5 ? -1 : 1)));
       u += 24 - diff * 9 + r() * 10;

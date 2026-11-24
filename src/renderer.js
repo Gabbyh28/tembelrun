@@ -157,8 +157,10 @@ export class View {
 
   // stay under the lowest ceiling around (the gallery slab is only 3.7 m)
   ceilingClamp(v, run) {
-    const hs = [THEMES[run.seg.theme].height ?? 4.6]; if (run.oldSeg) hs.push(THEMES[run.oldSeg.theme].height ?? 4.6);
-    v.y = Math.min(v.y, Math.min(...hs) - .35);
+    // camMax keeps the camera under the services that run along the aisle centre
+    const lim = th => (th.camMax ?? (th.height ?? 4.6) - .35);
+    const hs = [lim(THEMES[run.seg.theme])]; if (run.oldSeg) hs.push(lim(THEMES[run.oldSeg.theme]));
+    v.y = Math.min(v.y, Math.min(...hs));
   }
 
   update(run, dt, t) {
@@ -166,9 +168,9 @@ export class View {
     const fwd = this.tmp.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     const p = run.world;
     const sliding = run.sliding ? 1 : 0;
-    const back = run.giant ? 8.6 : 5.4, up = run.giant ? 5.4 : 2.85 - sliding * .35;
+    const back = run.giant ? 8.2 : 5.4, up = run.giant ? 3.3 : 2.85 - sliding * .35;
     // rise with the jump so the runner never hides the aisle ahead
-    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .95, p.z - fwd.z * back);
+    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .4, p.z - fwd.z * back);
     if (run.mode === 'over') {
       // pull back and look down at the scene
       desired.set(p.x - fwd.x * (back + 2.2), up + 1.4, p.z - fwd.z * (back + 2.2));
@@ -183,7 +185,7 @@ export class View {
       this.camera.position.x += (Math.random() - .5) * s; this.camera.position.y += (Math.random() - .5) * s;
     }
     const ahead = run.giant ? 13 : 8;
-    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * .3, p.z + fwd.z * ahead);
+    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * .15, p.z + fwd.z * ahead);
     this.camera.lookAt(this.lookAt);
     // lean slightly into lane changes / turns
     this.camera.rotateZ(THREE.MathUtils.clamp(-run.lateralVel * .006, -.05, .05));

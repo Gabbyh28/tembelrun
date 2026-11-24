@@ -52,6 +52,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #roomBadge { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); z-index: 4; padding: 10px 22px; border-radius: 14px; background: rgba(8, 14, 22, .8); border: 1px solid var(--cyan); font-weight: 700; font-size: 18px; animation: badge 2.6s ease forwards; }
 @keyframes badge { 0% { opacity: 0; transform: translate(-50%, -12px); } 12%, 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 
+#hananSpeech { position: absolute; top: 0; left: 0; z-index: 9; width: 190px; padding: 9px 12px; background: #f2f0d8; color: #172a38; border: 3px solid #213b4b; border-radius: 4px; box-shadow: 4px 4px 0 rgba(7, 21, 38, .55); pointer-events: none; text-align: center; font-size: 14px; font-weight: 500; margin-top: -14px; }
+#hananSpeech::after { content: ''; position: absolute; bottom: -15px; left: 50%; margin-left: -8px; border: 8px solid transparent; border-top-color: #213b4b; }
+#hananSpeech strong { display: block; color: #3b612a; font-size: 16px; font-weight: 900; }
+@media (max-width: 820px) { #hananSpeech { width: 160px; font-size: 13px; padding: 6px 9px; } }
+#hananCard { display: none; gap: 10px; align-items: center; margin-bottom: 12px; padding: 8px 12px 8px 8px; background: #f2f0d8; color: #172a38; border: 3px solid #213b4b; border-radius: 6px; box-shadow: 4px 4px 0 rgba(7, 21, 38, .55); font-weight: 500; }
+#hananCard canvas { width: 52px; height: 52px; border-radius: 4px; background: #d9d6b8; flex: none; }
+#hananCard strong { display: block; color: #3b612a; font-weight: 900; }
+@media (max-width: 820px) { #hananCard { display: flex; } #start:not([hidden]) ~ #hananSpeech, .narrow-start #hananSpeech { display: none !important; } }
 #radio { position: absolute; bottom: calc(80px + env(safe-area-inset-bottom)); inset-inline-start: 16px; z-index: 4; max-width: min(340px, 80vw); background: var(--panel); border: 1px solid var(--line); border-inline-start: 3px solid var(--amber); border-radius: 12px; padding: 8px 12px; display: grid; gap: 2px; animation: badge 4.5s ease forwards; }
 #radio strong { color: var(--amber); font-size: 12px; }
 #toast { position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); z-index: 4; font-weight: 900; font-size: 26px; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.8), 0 0 30px rgba(70, 200, 255, .6); pointer-events: none; opacity: 0; transition: opacity .2s; text-align: center; }

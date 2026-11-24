@@ -2,7 +2,7 @@
 import json, sys
 import numpy as np
 from PIL import Image
-GRIDS = {'technician': (4, 3), 'avichai': (4, 3), 'ariel': (4, 3), 'liad': (4, 3), 'gabi': (4, 3), 'ariel-roll': (4, 2), 'liad-rubber': (2, 2)}
+GRIDS = {'technician': (4, 3), 'avichai': (4, 3), 'ariel': (4, 3), 'liad': (4, 3), 'gabi': (4, 3), 'ariel-roll': (4, 2), 'liad-rubber': (2, 2), 'hanan-retro': (4, 1)}
 out = {}
 for name, (cols, rows) in GRIDS.items():
     im = Image.open(f'public/assets/characters/{name}.webp')

@@ -3,6 +3,7 @@ import { View } from './renderer.js';
 import { Assets, Track } from './world.js';
 import { Run } from './game.js';
 import { PlayerView, loadAtlas } from './player.js';
+import { HananView } from './host.js';
 import { GameAudio } from './audio.js';
 import { CHARACTERS, getCharacter, HOST_LINES } from './characters.js';
 import FRAMES from './frames.json';
@@ -33,10 +34,12 @@ async function boot() {
   const run = new Run(track);
   const player = new PlayerView(view.scene, assets);
   const audio = new GameAudio();
+  const hanan = new HananView(view.scene, assets);
   let character = getCharacter(store.get('character', 'technician'));
   loadingText.textContent = 'מעירים את הצוות…';
   await Promise.all(CHARACTERS.map(c => loadAtlas(c.atlas)));
   await player.setCharacter(character);
+  await hanan.load();
   run.reset(character); run.mode = 'ready';
   // warm up shaders so the first frames don't hitch
   view.update(run, .016, 0);
@@ -56,6 +59,13 @@ async function boot() {
     const cw = w * 1.1, ch2 = cw;
     g.drawImage(img, x + w / 2 - cw / 2, y - 4, cw, ch2, 0, 0, canvas.width, canvas.height);
   }
+  (async () => {
+    // Hanan's face for the compact start card on phones
+    const img = await atlasImage('hanan-retro');
+    const [x, y, w] = FRAMES['hanan-retro'].frames[0];
+    const c = $('hananFace'), g = c.getContext('2d');
+    g.drawImage(img, x + w * .3, y, w * .45, w * .45, 0, 0, c.width, c.height);
+  })();
   function refreshCharacterButton() {
     $('characterName').textContent = character.name;
     $('characterPower').textContent = '⚡ ' + character.power.name;
@@ -127,7 +137,7 @@ async function boot() {
   let countdownTimer = null, overTimer = null;
   function startRun() {
     clearTimeout(overTimer);
-    audio.unlock(); audio.playMusic(true);
+    audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.m4a');
     ['start', 'over', 'paused'].forEach(id => $(id).hidden = true);
     $('hud').hidden = false; $('pauseBtn').hidden = false;
     run.reset(character);
@@ -258,6 +268,11 @@ async function boot() {
       run.camYaw = run.seg.yaw + Math.sin(idleYaw) * .35;
     }
     player.update(run, t, view.camera, dt);
+    const bubble = $('hananSpeech');
+    const head = hanan.update(run, t, view.camera);
+    const talk = head && (run.mode === 'ready' || run.mode === 'countdown');
+    bubble.hidden = !talk || (innerWidth <= 820 && !$('start').hidden);
+    if (talk) bubble.style.transform = `translate(${head.x}px, ${head.y}px) translate(-50%, -100%)`;
     view.update(run, dt, t);
     view.render();
   }

@@ -54,6 +54,13 @@ export class GameAudio {
   setMusicVol(v) { this.musicVol = v; this.save('musicVol', v); if (this.musicGain && this.musicOn) this.musicGain.gain.value = v * .6; }
   setSfxVol(v) { this.sfxVol = v; this.save('sfxVol', v); if (this.sfx && this.sfxOn) this.sfx.gain.value = v; }
 
+  voice(file) {
+    if (!this.sfxOn) return;
+    const a = new Audio(`${import.meta.env.BASE_URL}assets/audio/${file}`);
+    a.volume = Math.min(1, this.sfxVol * 1.2);
+    a.play().catch(() => {});
+  }
+
   setDanger(x) { if (this.alarm) this.alarm.gain.setTargetAtTime(x * .07, this.ctx.currentTime, .1); }
 
   tone(freq, dur, type = 'sine', vol = .2, slide = 0, delay = 0) {

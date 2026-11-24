@@ -149,6 +149,7 @@ JOBS = {
   'liad':        dict(kind='magenta'),
   'liad-rubber': dict(kind='magenta'),
   'gabi':        dict(kind='magenta'),
+  'hanan-retro': dict(kind='magenta'),
 }
 os.makedirs(OUT, exist_ok=True)
 only = sys.argv[3:]
@@ -170,5 +171,5 @@ for name, job in JOBS.items():
     out.save(os.path.join(OUT, name + '.webp'), quality=90, method=6)
     # preview on dark grey for inspection
     prev = Image.new('RGBA', out.size, (40, 60, 70, 255)); prev.alpha_composite(out)
-    prev.convert('RGB').resize((out.width // 2, out.height // 2)).save(os.path.join(OUT, '..', '..', '..', 'tools', '_prev_' + name + '.jpg'))
+    pass  # prev.convert('RGB').resize((out.width // 2, out.height // 2)).save(os.path.join(OUT, '..', '..', '..', 'tools', '_prev_' + name + '.jpg'))
     print(name, out.size, os.path.getsize(os.path.join(OUT, name + '.webp')))

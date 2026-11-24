@@ -189,7 +189,12 @@ export class PlayerView {
       this.showFrame(ch.powerAtlas, Math.floor(run.distance / 1.4) % 4, scale);
     } else if (FRAMES[ch.atlas].run && this.atlases[ch.atlas + '-run']) {
       // one full stride cycle every ~5.6 m, 24 frames
-      this.showRun(Math.floor(run.distance / 5.6 * 24), scale);
+      const ri = FRAMES[ch.atlas].run;
+      if (ri.video) {
+        // real running video loop: play at its own frame rate, a little faster as you speed up
+        this.runPhase = ((this.runPhase || 0) + dt * ri.fps * THREE.MathUtils.clamp(run.speed / 14, .9, 1.45)) % ri.count;
+        this.showRun(Math.floor(this.runPhase), scale);
+      } else this.showRun(Math.floor(run.distance / 5.6 * 24), scale);
     } else {
       this.showFrame(ch.atlas, Math.floor(run.distance / .72) % 8, scale);
     }

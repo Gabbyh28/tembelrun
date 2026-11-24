@@ -69,7 +69,8 @@ export class PlayerView {
 
   async setCharacter(ch) {
     this.character = ch;
-    const names = [ch.atlas, ch.atlas + '-run', ch.rollAtlas, ch.powerAtlas].filter(Boolean);
+    const anims = Object.keys(FRAMES[ch.atlas].anims || {}).map(k => `${ch.atlas}-${k}-anim`);
+    const names = [ch.atlas, ch.atlas + '-run', ...anims, ch.rollAtlas, ch.powerAtlas].filter(Boolean);
     await Promise.all(names.map(async n => { this.atlases[n] = await loadAtlas(n); }));
     const info = FRAMES[ch.atlas];
     const idle = info.frames[11];
@@ -89,6 +90,25 @@ export class PlayerView {
     this.card.scale.set(info.cellW * mpp * scale, info.cellH * mpp * scale, 1);
     this.card.position.x = 0;
     this.footOffset = info.footPx * mpp * scale;
+  }
+
+  // Video-extracted animation (jump, slide, fall, idle, powers): fixed square cells aligned at the feet.
+  hasAnim(kind) { const a = FRAMES[this.character.atlas].anims; return !!(a && a[kind] && this.atlases[`${this.character.atlas}-${kind}-anim`]); }
+  showAnim(kind, index, scale = 1, meters) {
+    const info = FRAMES[this.character.atlas].anims[kind], tex = this.atlases[`${this.character.atlas}-${kind}-anim`];
+    if (this.mat.map !== tex) { this.mat.map = tex; this.mat.needsUpdate = true; this.card.customDepthMaterial.map = tex; this.card.customDepthMaterial.needsUpdate = true; }
+    const c = THREE.MathUtils.clamp(Math.floor(index), 0, info.count - 1), col = c % info.cols, row = Math.floor(c / info.cols);
+    tex.matrixAutoUpdate = false;
+    tex.matrix.setUvTransform(col * info.cellW / info.w, 1 - (row + 1) * info.cellH / info.h, info.cellW / info.w, info.cellH / info.h, 0, 0, 0);
+    const mpp = (meters || this.character.height) / info.bodyPx;
+    this.card.scale.set(info.cellW * mpp * scale, info.cellH * mpp * scale, 1);
+    this.card.position.x = 0;
+    this.footOffset = info.footPx * mpp * scale;
+  }
+  animLoop(kind, dt, rate = 1) {
+    const info = FRAMES[this.character.atlas].anims[kind];
+    this.loopPhase = this.loopPhase || {};
+    return (this.loopPhase[kind] = ((this.loopPhase[kind] || 0) + dt * info.fps * rate) % info.count);
   }
 
   showFrame(atlas, index, scale = 1) {
@@ -176,15 +196,34 @@ export class PlayerView {
       this.showFrame(ch.atlas, 11, scale);                       // standing on the forks, back view
     } else if (run.riding === 'tray' && run.mode === 'running') {
       this.showFrame(ch.atlas, 9, scale);                        // sliding pose inside the tray
+    } else if (run.rolling && this.hasAnim('roll')) {
+      this.showAnim('roll', this.animLoop('roll', dt, 1.3), scale, 1.3);
     } else if (run.rolling && ch.rollAtlas) {
       const f = Math.floor(run.distance * .9) % 8;
       this.showFrame(ch.rollAtlas, f, scale);
+    } else if (run.mode === 'over' && this.hasAnim('fall')) {
+      // play the crash once and stay down
+      const info = FRAMES[ch.atlas].anims.fall;
+      this.showAnim('fall', Math.min(info.count - 1, (run.deathT || 0) * info.fps * 1.2), scale);
+    } else if ((run.mode === 'ready' || run.mode === 'countdown') && this.hasAnim('idle')) {
+      this.showAnim('idle', this.animLoop('idle', dt, .8), scale);
     } else if (run.mode === 'over' || run.mode === 'ready' || run.mode === 'countdown') {
       this.showFrame(ch.atlas, run.mode === 'over' ? 9 : 11, scale);
+    } else if (run.y > .05 && !run.sliding && this.hasAnim('jump')) {
+      // map the jump arc (vy from +JUMP_V to -JUMP_V) onto take-off -> landing
+      const info = FRAMES[ch.atlas].anims.jump, p = THREE.MathUtils.clamp(.5 - run.vy / 12.3, 0, 1);
+      this.showAnim('jump', 1 + p * (info.count - 3), scale);
     } else if (run.y > .05 && !run.sliding) {
       this.showFrame(ch.atlas, 8, scale);
+    } else if (run.sliding && this.hasAnim('slide')) {
+      const info = FRAMES[ch.atlas].anims.slide, p = 1 - THREE.MathUtils.clamp(run.slideT / .78, 0, 1);
+      this.showAnim('slide', p * (info.count - 1), scale);
     } else if (run.sliding) {
       this.showFrame(ch.atlas, 9, scale);
+    } else if (run.elastic && this.hasAnim('elastic')) {
+      this.showAnim('elastic', this.animLoop('elastic', dt, THREE.MathUtils.clamp(run.speed / 14, .9, 1.45)), scale);
+    } else if (run.prayer && this.hasAnim('prayer')) {
+      this.showAnim('prayer', this.animLoop('prayer', dt, THREE.MathUtils.clamp(run.speed / 14, .9, 1.45)), scale);
     } else if (run.elastic && ch.powerAtlas) {
       this.showFrame(ch.powerAtlas, Math.floor(run.distance / 1.4) % 4, scale);
     } else if (FRAMES[ch.atlas].run && this.atlases[ch.atlas + '-run']) {

@@ -20,7 +20,8 @@ export class GameAudio {
     this.musicGain = ctx.createGain(); this.musicGain.gain.value = this.musicOn ? this.musicVol * .6 : 0; this.musicGain.connect(this.master);
     this.music = new Audio(`${import.meta.env.BASE_URL}assets/audio/hypnotic-chill.mp3`);
     this.music.loop = true; this.music.crossOrigin = 'anonymous';
-    ctx.createMediaElementSource(this.music).connect(this.musicGain);
+    this.trackGain = ctx.createGain(); this.trackGain.connect(this.musicGain);
+    ctx.createMediaElementSource(this.music).connect(this.trackGain);
     // white noise buffer reused by effects and ambience
     const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -93,6 +94,7 @@ export class GameAudio {
 
   playMusic(on = true) {
     if (!this.music) return;
+    this.musicPaused = !on;
     if (on && this.musicOn) this.music.play().catch(() => {});
     else this.music.pause();
   }
@@ -141,6 +143,9 @@ export class GameAudio {
       case 'power': [523, 659, 784, 1046].forEach((f, i) => this.tone(f, .3, 'triangle', .12, 0, i * .07)); break;
       case 'powerEnd': this.tone(660, .3, 'sine', .08, -300); break;
       case 'crash': this.burst(.9, 300, .4, .6, 'lowpass', -250); this.tone(60, .8, 'sawtooth', .18, -30); break;
+      case 'rideStart': this.burst(.5, 300, .6, .3, 'lowpass', 900); [392, 523, 659].forEach((f, i) => this.tone(f, .18, 'square', .06, 0, i * .06)); break;
+      case 'rideEnd': this.burst(.3, 900, 1, .15, 'bandpass', -600); break;
+      case 'revive': [440, 554, 659, 880].forEach((f, i) => this.tone(f, .25, 'triangle', .1, 0, i * .08)); break;
       case 'room': this.tone(392, .5, 'sine', .07); this.tone(587, .6, 'sine', .06, 0, .12); break;
       case 'tick': this.tone(660, .12, 'square', .06); break;
       case 'go': this.tone(990, .3, 'square', .07); break;

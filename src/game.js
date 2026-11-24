@@ -38,9 +38,12 @@ export class Run {
     this.character = null;
   }
 
-  reset(character) {
+  reset(character, opts = {}) {
+    this.bonus = { powerBonus: 0, magnetBonus: 0, valueMult: 1, revives: 1, ...(opts.bonus || {}) };
+    this.daily = !!opts.daily;
+    this.riding = null; this.banked = 0; this.paidRevives = 0;
     this.character = character;
-    this.seg = this.track.reset();
+    this.seg = this.track.reset(opts.random);
     this.u = 2; this.x = 0; this.lane = 1; this.y = 0; this.vy = 0;
     this.slideT = 0; this.sliding = false;
     this.distance = 0; this.speed = 13; this.chips = 0; this.score = 0;
@@ -50,7 +53,7 @@ export class Run {
     this.lateralVel = 0;
     this.chaserDist = 4; this.chaserHeat = .6; this.lastStumble = -99; this.time = 0;
     this.powerRemaining = 0; this.magnet = this.invincible = this.giant = this.rolling = this.elastic = this.prayer = false;
-    this.reason = ''; this.failKind = ''; this.revives = 1; this.invulnT = 0;
+    this.reason = ''; this.failKind = ''; this.revives = this.bonus.revives; this.invulnT = 0;
     this.oldSeg = null; this.oldSegT = 0;
     this.lastTheme = this.seg.theme;
     this.shake = 0; this.debris = [];
@@ -72,9 +75,10 @@ export class Run {
       const nl = Math.max(0, Math.min(2, this.lane + (action === 'left' ? -1 : 1)));
       if (nl !== this.lane) { this.lane = nl; this.emit('lane'); }
     } else if (action === 'jump') {
+      if (this.riding) return;
       if (this.y <= .001 && !this.rolling) { this.vy = JUMP_V; this.sliding = false; this.slideT = 0; this.emit('jump'); }
     } else if (action === 'slide') {
-      if (this.rolling) return;
+      if (this.rolling || this.riding === 'tray') return;
       if (this.y > .001) this.vy = Math.min(this.vy, -11);
       this.sliding = true; this.slideT = SLIDE_TIME; this.emit('slide');
     }
@@ -87,7 +91,11 @@ export class Run {
     this.time += dt;
     const s = this.seg;
     this.speed = runSpeedAt(this.distance);
-    const v = this.speed * (this.giant ? 1.15 : 1);
+    // special ride sections: hop on a pallet jack or slide in a cable tray
+    const R = s.ride;
+    if (R && !this.riding && this.u >= R.from && this.u < R.to) { this.riding = R.type; this.sliding = false; this.y = 0; this.vy = 0; if (s.rideMesh) s.rideMesh.visible = false; this.emit('rideStart', { kind: R.type }); }
+    if (this.riding && (!R || this.u >= R.to)) { this.riding = null; this.emit('rideEnd'); }
+    const v = this.speed * (this.giant ? 1.15 : 1) * (this.riding ? 1.35 : 1);
     this.u += v * dt; this.distance += v * dt;
 
     // lateral
@@ -140,6 +148,7 @@ export class Run {
     if (this.oldSeg) this.track.retire(this.oldSeg);
     this.oldSeg = s; this.oldSegT = 1.6;
     this.seg = child;
+    if (this.riding) { this.riding = null; this.emit('rideEnd'); }
     this.emit('turn', { side });
     if (child.theme !== this.lastTheme) { this.lastTheme = child.theme; this.emit('room', { theme: child.theme, name: THEMES[child.theme].he }); }
   }
@@ -221,12 +230,12 @@ export class Run {
     for (const c of s.chips) {
       if (c.taken) continue;
       const du = c.u - this.u;
-      if (magnet && du > -1 && du < 18) {
+      if (magnet && du > -1 && du < 18 + this.bonus.magnetBonus * 6) {
         // pulled toward the runner
         const k = 1 - Math.exp(-dt * (this.elastic ? 14 : 9));
         c.x += (this.x - c.x) * k; c.y += (this.y + 1 - c.y) * k; c.u += (this.u + .3 - c.u) * k * .6;
       }
-      if (Math.abs(c.u - this.u) < .9 && Math.abs(c.x - this.x) < .8 * (this.giant ? 1.8 : 1) && c.y > this.y - .3 && c.y < this.y + (this.sliding ? 1.0 : 2.1) * (this.giant ? 1.8 : 1)) {
+      if (Math.abs(c.u - this.u) < .9 + this.bonus.magnetBonus * .15 && Math.abs(c.x - this.x) < (.8 + this.bonus.magnetBonus * .12) * (this.giant ? 1.8 : 1) && c.y > this.y - .3 && c.y < this.y + (this.sliding ? 1.0 : 2.1) * (this.giant ? 1.8 : 1)) {
         c.taken = true; this.chips++; this.combo++; this.comboT = 2.2;
         this.chipScore += 10 * this.mult;
         this.emit('chip', { combo: this.combo });
@@ -245,7 +254,7 @@ export class Run {
     const pw = this.character.power;
     if (this.powerRemaining > 0) pw.finish(this);
     pw.activate(this);
-    this.powerRemaining = pw.duration;
+    this.powerRemaining = this.powerTotal = pw.duration + this.bonus.powerBonus;
     this.sliding = false;
     this.emit('power', { name: pw.active });
   }

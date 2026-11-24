@@ -54,7 +54,7 @@ const rng = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 214748364
 /* ------------------------------------------------------------------ */
 export class Assets {
   constructor(renderer, quality = 'high') {
-    this.detail = quality === 'smooth' ? .5 : 1;
+    this.detail = quality === 'high' ? 1 : .5;
     const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     this.aniso = aniso;
     const floor = TX.floorTextures(aniso);
@@ -94,6 +94,16 @@ export class Assets {
     this.R = roomAssets(this);
     Object.assign(this.obstacleKit, roomObstacles(this, this.R));
     this.obstacleKit.hose = this.obstacleKit.cable;
+    // cable-tray sled for the slide ride
+    {
+      const sh = new THREE.Shape(); const w = .7, h = .16, t = .02;
+      sh.moveTo(-w / 2, h); sh.lineTo(-w / 2, 0); sh.lineTo(w / 2, 0); sh.lineTo(w / 2, h); sh.lineTo(w / 2 - t, h); sh.lineTo(w / 2 - t, t); sh.lineTo(-w / 2 + t, t); sh.lineTo(-w / 2 + t, h);
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: 1.7, bevelEnabled: false }); geo.translate(0, .03, -.85);
+      const sled = new THREE.Group(); const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: 0xf2c200, roughness: .35, clearcoat: .6 })); m.castShadow = true; sled.add(m);
+      const lip = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .7, 12), m.material); lip.rotation.z = Math.PI / 2; lip.position.set(0, .12, -.86); sled.add(lip);
+      this.obstacleKit.sled = sled;
+    }
+    this.rideSigns = {};
   }
   rackFront(theme, v) {
     const key = theme + v;
@@ -125,6 +135,13 @@ export class Assets {
   }
   spillMat(color) {
     return this.spillMats[color] ||= new THREE.MeshPhysicalMaterial({ color, roughness: .4, clearcoat: .5, clearcoatRoughness: .3 });
+  }
+  rideSign(type) {
+    if (!this.rideSigns[type]) {
+      const t = TX.signTexture(type === 'jack' ? 'RIDE  ▶  PALLET JACK' : 'SLIDE  ▶  CABLE TRAY', type === 'jack' ? 'קופצים על עגלת משטחים!' : 'גולשים במגש כבלים!', '#ffbf2e');
+      this.rideSigns[type] = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: .9, side: THREE.DoubleSide });
+    }
+    return this.rideSigns[type];
   }
   duct(color) {
     return this.ducts[color] ||= new THREE.MeshStandardMaterial({ color, roughness: .45, metalness: .05 });
@@ -381,6 +398,11 @@ export class Track {
       const length = worldLength(dist, this.random);
       const child = new Segment({ origin: seg.end(), dir, length, turns: this.pickTurns(), theme, distanceAtStart: dist, seed: (seg.seed * 31 + (side === 'right' ? 7 : 3)) % 100000 });
       child.parent = seg; child.side = side;
+      // sometimes a world opens with a ride: a red pallet jack or a cable-tray slide
+      if (this.random() < .4) {
+        const len = Math.min(child.length - 50, runSpeedAt(dist) * 1.35 * (7 + this.random() * 4));
+        if (len > 45) child.ride = { type: this.random() < .5 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 10 + len };
+      }
       this.populate(child, dist);
       this.build(child);
       seg.children[side] = child;
@@ -430,16 +452,18 @@ export class Track {
       else if (roll < set.jumpP + set.slideP) kind = 'slide';
       else if (roll < set.jumpP + set.slideP + (set.pitP || 0)) kind = 'pit';
       else kind = 'dodge';
+      const inRide = seg.ride && u > seg.ride.from - 4 && u < seg.ride.to + 6;
+      if (inRide) kind = 'dodge';
       let free = [0, 1, 2];
       if (kind === 'jump') { const jt = room === 'storeroom' && r() < .4 ? 'woodLadder' : set.jump; push({ type: jt, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true }); }
       else if (kind === 'slide') push({ type: set.slide, u, len: set.slide === 'duct' ? 1 : .7, lanes: [0, 1, 2], need: 'slide' });
       else if (kind === 'pit') push({ type: 'pit', u, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
-      else if (room === 'warehouse' && r() < .35) {
+      else if (room === 'warehouse' && !inRide && r() < .35) {
         // a forklift drives across the aisle as you approach
         const fromLeft = r() < .5, sx = fromLeft ? -HALF - 2.2 : HALF + 2.2, tx = fromLeft ? HALF + 2.6 : -HALF - 2.6;
         push({ type: 'forklift', u, len: 1.4, lanes: [0, 1, 2], need: 'dodge', x: sx, halfW: 1.45, rotY: fromLeft ? -Math.PI / 2 : Math.PI / 2, move: { to: tx, trigger: 30, speed: 4.6 } });
       }
-      else if (room === 'gallery' && r() < .3) {
+      else if (room === 'gallery' && !inRide && r() < .3) {
         // an office chair rolls across the aisle as you approach
         const a = r() * 3 | 0, b = a === 1 ? (r() < .5 ? 0 : 2) : 1;
         push({ type: 'chair', u, len: .7, lanes: [a, b], need: 'dodge', x: LANES[a], move: { to: LANES[b], trigger: 26, speed: 2.4, spin: true } });
@@ -648,6 +672,13 @@ export class Track {
       const back = own(new THREE.Mesh(new THREE.BoxGeometry(2.5, .52, .04), A.housingMat)); back.position.set(0, 2.95, -(u0 + 6) - .03);
       g.add(back, sm);
       const sm2 = sm.clone(); sm2.position.z = -(u0 + 6) - .061; sm2.rotation.y = Math.PI; g.add(sm2);
+    }
+
+    // parked ride vehicle waiting at the start of the ride section
+    if (seg.ride) {
+      const m = (seg.ride.type === 'jack' ? A.obstacleKit.jack : A.obstacleKit.sled).clone();
+      m.position.set(0, 0, -(seg.ride.from + .6)); seg.rideMesh = m; g.add(m);
+      const sign = own(new THREE.Mesh(new THREE.PlaneGeometry(3.2, .6), A.rideSign(seg.ride.type))); sign.position.set(0, 2.6, -(seg.ride.from - 2)); g.add(sign);
     }
 
     // Obstacles

@@ -217,3 +217,28 @@ h1 em { text-shadow: var(--extrude-lime); display: inline-block; animation: shin
 #over.modal { background: rgba(4, 7, 11, .4); backdrop-filter: blur(2px); }
 
 @media (min-width: 821px) { #over.modal { justify-content: flex-end; padding-left: max(5vw, 24px); } }
+
+/* start row, shop, daily, fps */
+.start-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.start-row .secondary { margin-top: 0; display: grid; gap: 2px; font-weight: 900; }
+.start-row small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.shop small b { color: var(--cyan); }
+#installBtn { margin-top: 10px; }
+.wallet { margin-inline-start: auto; margin-inline-end: 12px; font: 700 18px 'JetBrains Mono', monospace; color: var(--cyan); text-shadow: 0 2px 0 #0b3a52; }
+.shop-note { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+#shopList { display: grid; gap: 10px; }
+.shop-item { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 12px; border-radius: 16px; background: linear-gradient(180deg, rgba(52,66,82,.6), rgba(14,20,28,.8)); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 5px 0 #05080c; }
+.shop-item .ic { font-size: 28px; text-align: center; }
+.shop-item strong { display: block; font-size: 16px; }
+.shop-item small { color: var(--muted); font-size: 12px; }
+.pips { display: flex; gap: 4px; margin-top: 6px; }
+.pips i { width: 18px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); }
+.pips i.on { background: var(--lime); box-shadow: 0 0 6px rgba(183,255,60,.6); }
+.buy { padding: 10px 14px; border: 0; border-radius: 12px; font-weight: 900; background: linear-gradient(180deg, #8fe3ff, #46c8ff 50%, #1f86b5); color: #031722; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 0 #0b4a68; white-space: nowrap; }
+.buy:disabled { filter: grayscale(1) brightness(.6); cursor: default; }
+.buy:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 0 #0b4a68; }
+.shop-head { margin: 16px 0 6px; font-size: 16px; color: var(--muted); }
+.char-card.locked canvas { filter: grayscale(.9) brightness(.55); }
+.char-card .lock { font-weight: 900; color: var(--cyan); }
+#earned { color: var(--cyan); font-weight: 900; font-size: 18px; text-shadow: 0 2px 0 #0b3a52; margin: 4px 0; }
+#fps { position: absolute; bottom: calc(8px + env(safe-area-inset-bottom)); left: 8px; z-index: 30; font: 700 12px 'JetBrains Mono', monospace; color: var(--lime); background: rgba(0,0,0,.55); padding: 4px 8px; border-radius: 8px; direction: ltr; pointer-events: none; }

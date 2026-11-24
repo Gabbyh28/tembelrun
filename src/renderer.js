@@ -95,17 +95,36 @@ export class View {
   setQuality(q) {
     if (q === 'auto') {
       const mobile = matchMedia('(pointer:coarse)').matches || Math.min(screen.width, screen.height) < 700;
-      q = mobile ? 'smooth' : 'high';
+      q = mobile ? 'phone' : 'high';
     }
     this.quality = q;
-    const high = q === 'high';
-    this.pixelRatio = Math.min(devicePixelRatio, high ? 2 : 1.25);
-    this.key.shadow.mapSize.set(high ? 2048 : 1024, high ? 2048 : 1024);
+    const high = q === 'high', phone = q === 'phone';
+    // resolution range the adaptive scaler may move within
+    this.prMax = Math.min(devicePixelRatio, high ? 2 : phone ? 2 : 1.25);
+    this.prMin = high ? 1 : phone ? .85 : .75;
+    this.pixelRatio = Math.min(this.prMax, high ? 2 : phone ? 1.5 : 1.25);
+    const sm = high ? 2048 : 1024;
+    this.key.shadow.mapSize.set(sm, sm);
     if (this.key.shadow.map) { this.key.shadow.map.dispose(); this.key.shadow.map = null; }
     this.activeLights = high ? 10 : 6;
     this.pool.forEach((l, i) => { l.visible = i < this.activeLights; });
     this.composer.renderTarget1.samples = this.composer.renderTarget2.samples = high ? 4 : 0;
+    this.dust && (this.dust.geometry.drawRange.count = high ? Infinity : 350);
+    this.adaptT = 0; this.adaptN = 0; this.goodWindows = 0;
     this.resize();
+  }
+
+  // Adaptive resolution: keep ~60 fps by nudging the render scale every 1.5 s.
+  adapt(dt) {
+    if (dt > .25) return;                       // tab switch / hitch
+    this.adaptT += dt; this.adaptN++;
+    if (this.adaptT < 1.5) return;
+    const avg = this.adaptT / this.adaptN;
+    this.adaptT = 0; this.adaptN = 0;
+    let pr = this.pixelRatio;
+    if (avg > 1 / 50) { pr = Math.max(this.prMin, pr - (avg > 1 / 35 ? .25 : .12)); this.goodWindows = 0; }
+    else if (avg < 1 / 58) { if (++this.goodWindows >= 3) { pr = Math.min(this.prMax, pr + .1); this.goodWindows = 0; } }
+    if (Math.abs(pr - this.pixelRatio) > .01) { this.pixelRatio = pr; this.resize(); }
   }
   setShadows(on) { this.renderer.shadowMap.enabled = on; this.key.castShadow = on; this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); }
 

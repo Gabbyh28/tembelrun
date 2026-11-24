@@ -8,6 +8,8 @@ import { UI3D } from './ui3d.js';
 import { GameAudio } from './audio.js';
 import { CHARACTERS, getCharacter, HOST_LINES } from './characters.js';
 import FRAMES from './frames.json';
+import { Wallet, UPGRADES, UNLOCK_COST, dailySeed, mulberry32 } from './economy.js';
+import { Music } from './music.js';
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -39,6 +41,9 @@ async function boot() {
   const ui3d = new UI3D(view.scene);
   const audio = new GameAudio();
   const hanan = new HananView(view.scene, assets);
+  const wallet = new Wallet(store);
+  const music = new Music(audio);
+  let daily = false;
   let character = getCharacter(store.get('character', 'technician'));
   loadingText.textContent = 'מעירים את הצוות…'; $('loadFill').style.width = '75%';
   await Promise.all(CHARACTERS.map(c => loadAtlas(c.atlas)));
@@ -100,9 +105,13 @@ async function boot() {
     card.className = 'char-card'; card.dataset.id = ch.id;
     const cv = document.createElement('canvas'); cv.width = cv.height = 220;
     card.append(cv);
-    card.insertAdjacentHTML('beforeend', `<strong>${ch.name}</strong><small>${ch.description}</small><em>⚡ ${ch.power.name}</em><small>${ch.power.description}</small>`);
+    card.insertAdjacentHTML('beforeend', `<strong>${ch.name}</strong><small>${ch.description}</small><em>⚡ ${ch.power.name}</em><small>${ch.power.description}</small><span class="lock"></span>`);
     drawPortrait(cv, ch);
     card.onclick = async () => {
+      if (!wallet.isUnlocked(ch.id)) {
+        if (!wallet.unlock(ch.id)) { toast(`צריך עוד ${(UNLOCK_COST[ch.id] - wallet.balance).toLocaleString('he-IL')} QSFP`, 1400); return; }
+        audio.unlock(); audio.play({ type: 'record' }); refreshWallet();
+      }
       character = ch; store.set('character', ch.id);
       grid.querySelectorAll('.char-card').forEach(c => c.classList.toggle('selected', c.dataset.id === ch.id));
       await player.setCharacter(ch); run.character = ch;
@@ -112,6 +121,54 @@ async function boot() {
     grid.append(card);
   }
   grid.querySelector(`[data-id="${character.id}"]`).classList.add('selected');
+  function refreshLocks() {
+    grid.querySelectorAll('.char-card').forEach(c => {
+      const id = c.dataset.id, locked = !wallet.isUnlocked(id);
+      c.classList.toggle('locked', locked);
+      c.querySelector('.lock').textContent = locked ? `🔒 פתיחה ב־${UNLOCK_COST[id].toLocaleString('he-IL')} QSFP` : '';
+    });
+  }
+  // shop
+  function renderShop() {
+    const list = $('shopList'); list.innerHTML = '';
+    for (const u of UPGRADES) {
+      const lvl = wallet.level(u.id), cost = wallet.nextCost(u.id);
+      const el = document.createElement('div'); el.className = 'shop-item';
+      el.innerHTML = `<span class="ic">${u.icon}</span><span><strong>${u.name}</strong><small>${u.desc}</small><span class="pips">${u.costs.map((_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</span></span>`;
+      const b = document.createElement('button'); b.className = 'buy';
+      b.textContent = cost === null ? 'מקסימום ✓' : `${cost.toLocaleString('he-IL')} 💠`;
+      b.disabled = cost === null || wallet.balance < cost;
+      b.onclick = () => { if (wallet.buyUpgrade(u.id)) { audio.unlock(); audio.play({ type: 'power' }); refreshWallet(); renderShop(); } };
+      el.append(b); list.append(el);
+    }
+    const head = document.createElement('div'); head.className = 'shop-head'; head.textContent = 'דמויות לפתיחה'; list.append(head);
+    for (const ch of CHARACTERS) {
+      if (!UNLOCK_COST[ch.id]) continue;
+      const el = document.createElement('div'); el.className = 'shop-item';
+      const owned = wallet.isUnlocked(ch.id);
+      el.innerHTML = `<span class="ic">${owned ? '✅' : '🔒'}</span><span><strong>${ch.name}</strong><small>⚡ ${ch.power.name}</small></span>`;
+      const b = document.createElement('button'); b.className = 'buy';
+      b.textContent = owned ? 'פתוח ✓' : `${UNLOCK_COST[ch.id].toLocaleString('he-IL')} 💠`;
+      b.disabled = owned || wallet.balance < UNLOCK_COST[ch.id];
+      b.onclick = () => { if (wallet.unlock(ch.id)) { audio.unlock(); audio.play({ type: 'record' }); refreshWallet(); renderShop(); } };
+      el.append(b); list.append(el);
+    }
+  }
+  function refreshWallet() {
+    const v = wallet.balance.toLocaleString('he-IL');
+    $('walletStart').textContent = v; $('walletShop').textContent = v; refreshLocks();
+  }
+  $('shopBtn').onclick = () => { renderShop(); $('shopDialog').showModal(); };
+  const todayKey = 'daily.' + dailySeed();
+  function refreshDaily() { const b = store.get(todayKey, 0); $('dailyBest').textContent = b ? `השיא היום: ${b.toLocaleString('he-IL')}` : 'מסלול חדש כל יום · QSFP כפול'; }
+  $('dailyBtn').onclick = () => startRun(true);
+  // install as an app (Android Chrome)
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('installBtn').hidden = false; });
+  $('installBtn').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $('installBtn').hidden = true; };
+  // frame-rate meter
+  $('fpsSetting').checked = store.get('fps', false) || location.search.includes('fps'); $('fps').hidden = !$('fpsSetting').checked;
+  $('fpsSetting').onchange = e => { store.set('fps', e.target.checked); $('fps').hidden = !e.target.checked; };
   $('chooseCharacter').onclick = () => $('characterDialog').showModal();
   document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
 
@@ -134,13 +191,16 @@ async function boot() {
 
   /* ---------------- flow ---------------- */
   let countdownTimer = null, overTimer = null, helpSpoken = false;
-  function startRun() {
+  function startRun(isDaily = false) {
     clearTimeout(overTimer);
+    daily = isDaily === true;
     audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.mp3');
     ['start', 'over', 'paused'].forEach(id => $(id).hidden = true);
     $('hud').hidden = false; $('pauseBtn').hidden = false;
-    run.reset(character);
+    run.reset(character, { bonus: wallet.runBonuses(), daily, random: daily ? mulberry32(dailySeed()) : undefined });
     player.setCharacter(character);
+    music.setWorld(run.seg.theme === 'hall' ? null : run.seg.theme);
+    if (daily) toast('אתגר יומי — אותו מסלול לכולם היום', 1600);
     let n = 3;
     ui3d.showCount(String(n)); audio.play({ type: 'tick' });
     clearInterval(countdownTimer);
@@ -165,7 +225,7 @@ async function boot() {
     clearInterval(countdownTimer);
     ['over', 'paused', 'hud', 'countdown', 'powerBar', 'danger', 'turnCue'].forEach(id => $(id).hidden = true);
     $('pauseBtn').hidden = true; $('start').hidden = false;
-    run.reset(character); run.mode = 'ready'; refreshBest(); syncTouch();
+    run.reset(character, { bonus: wallet.runBonuses() }); run.mode = 'ready'; refreshBest(); syncTouch(); music.setWorld(null);
   }
   function gameOver() {
     const score = run.score, dist = Math.floor(run.distance);
@@ -179,20 +239,42 @@ async function boot() {
     $('finalChips').textContent = run.chips;
     $('newRecord').hidden = !record;
     $('hostResult').textContent = 'חנן: ' + hostLine(record ? 'record' : 'failure');
+    // bank this run's modules
+    const fresh = run.chips - run.banked;
+    const earned = Math.round(fresh * run.bonus.valueMult * (run.daily ? 2 : 1));
+    run.banked = run.chips;
+    if (earned > 0) wallet.add(earned);
+    $('earned').textContent = earned > 0 ? `+${earned.toLocaleString('he-IL')} 💠 QSFP לארנק${run.daily ? ' (כפול באתגר היומי)' : ''} · בארנק: ${wallet.balance.toLocaleString('he-IL')}` : `בארנק: ${wallet.balance.toLocaleString('he-IL')} QSFP`;
+    if (run.daily && score > store.get(todayKey, 0)) store.set(todayKey, score);
+    refreshWallet(); refreshDaily();
     $('revive').hidden = run.revives <= 0;
+    const cost = 75 * Math.pow(2, run.paidRevives);
+    $('reviveBuy').hidden = run.revives > 0;
+    $('reviveBuy').disabled = wallet.balance < cost;
+    $('reviveBuy').textContent = `🤝 חנן עוזר שוב — ${cost.toLocaleString('he-IL')} 💠 QSFP`;
     $('over').hidden = false; $('pauseBtn').hidden = true;
     ['powerBar', 'danger', 'turnCue'].forEach(id => $(id).hidden = true);
     syncTouch();
   }
-  $('play').onclick = startRun;
-  $('again').onclick = startRun;
+  $('play').onclick = () => startRun(false);
+  $('again').onclick = () => startRun(daily);
+  const continueRun = () => {
+    $('over').hidden = true; $('pauseBtn').hidden = false; $('hud').hidden = false;
+    audio.playMusic(true); syncTouch();
+    toast('חנן הרים אותך! ממשיכים', 1400);
+  };
+  $('reviveBuy').onclick = () => {
+    const cost = 75 * Math.pow(2, run.paidRevives);
+    if (!wallet.spend(cost)) return;
+    run.paidRevives++; run.revives++; run.revive(); refreshWallet(); continueRun();
+  };
   $('revive').onclick = () => {
     if (!run.revive()) return;
     $('over').hidden = true; $('pauseBtn').hidden = false; $('hud').hidden = false;
     audio.playMusic(true); syncTouch();
     toast('חנן הרים אותך! ממשיכים', 1400);
   };
-  $('restart').onclick = startRun;
+  $('restart').onclick = () => startRun(daily);
   $('home').onclick = goHome;
   $('quit').onclick = goHome;
   $('resume').onclick = resume;
@@ -222,21 +304,28 @@ async function boot() {
   $('touchControls').addEventListener('pointerdown', e => { const a = e.target.closest('button')?.dataset.act; if (a) { e.preventDefault(); run.input(a); } });
 
   /* ---------------- loop ---------------- */
-  refreshCharacterButton(); refreshBest();
+  refreshCharacterButton(); refreshBest(); refreshWallet(); refreshDaily();
+  let fpsAcc = 0, fpsN = 0;
   if (isTouch && store.get('touch', null) === null) { /* swipe by default on phones */ }
   const clock = new THREE.Clock();
   let t = 0, idleYaw = 0;
   function frame() {
     requestAnimationFrame(frame);
-    const dt = Math.min(.05, clock.getDelta());
+    const rawDt = clock.getDelta();
+    const dt = Math.min(.05, rawDt);
     t += dt;
+    view.adapt(rawDt);
+    fpsAcc += rawDt; fpsN++;
+    if (fpsAcc > .5) { if (!$('fps').hidden) $('fps').textContent = `${Math.round(fpsN / fpsAcc)} FPS · ${view.pixelRatio.toFixed(2)}x · ${view.quality}`; fpsAcc = 0; fpsN = 0; }
     run.update(dt);
     for (const ev of run.events) {
       audio.play(ev);
       if (ev.type === 'power') { toast(ev.name, 1800); $('powerName').textContent = character.power.name; $('powerBar').hidden = false; }
       else if (ev.type === 'powerEnd') $('powerBar').hidden = true;
       else if (ev.type === 'stumble') { toast('מעידה!', 700); audio.hananSay('careful', 'תיזהר!'); if (navigator.vibrate) navigator.vibrate(40); }
-      else if (ev.type === 'room') showRoom(ev.name);
+      else if (ev.type === 'room') { showRoom(ev.name); music.setWorld(ev.theme === 'hall' ? null : ev.theme); }
+      else if (ev.type === 'rideStart') toast(ev.kind === 'jack' ? 'על העגלה! החליקו לצדדים 🛒' : 'גלישה במגש הכבלים! 🟨', 1600);
+      else if (ev.type === 'rideEnd') toast('קפיצה מהרכב!', 800);
       else if (ev.type === 'crash') { clearTimeout(overTimer); helpSpoken = false; overTimer = setTimeout(gameOver, 4500); if (navigator.vibrate) navigator.vibrate([60, 40, 120]); }
       else if (ev.type === 'chip' && ev.combo && ev.combo % 10 === 0) toast(`רצף ×${1 + Math.min(4, ev.combo / 10)}`, 900);
     }
@@ -248,7 +337,7 @@ async function boot() {
       $('hudChips').textContent = run.chips;
       $('hudScore').textContent = run.score.toLocaleString('he-IL');
       $('hudMult').textContent = run.mult > 1 ? '×' + run.mult : '';
-      if (run.powerRemaining > 0) $('powerFill').style.width = (run.powerRemaining / character.power.duration * 100) + '%';
+      if (run.powerRemaining > 0) $('powerFill').style.width = (run.powerRemaining / (run.powerTotal || character.power.duration) * 100) + '%';
       $('danger').hidden = !(run.mode === 'running' && run.chaserHeat > .45 && run.time > 3);
       const hint = run.mode === 'running' && run.turnHint();
       $('turnCue').hidden = !hint;
@@ -296,6 +385,11 @@ async function boot() {
     view.render();
   }
   frame();
+}
+
+// installable app + offline play (only on the real site, not inside embeds)
+if ('serviceWorker' in navigator && window.top === window && location.protocol === 'https:') {
+  addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }
 
 boot().catch(err => {

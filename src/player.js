@@ -19,6 +19,7 @@ export function loadAtlas(name) {
 export class PlayerView {
   constructor(scene, assets) {
     this.scene = scene;
+    this.assets = assets;
     this.group = new THREE.Group();
     this.geo = new THREE.PlaneGeometry(1, 1);
     this.geo.translate(0, .5, 0);
@@ -142,6 +143,25 @@ export class PlayerView {
     const ch = this.character;
     if (!ch) return;
     this.updateGas(run, dt, camera);
+    // ride vehicles under the runner
+    if (!this.rides) {
+      this.rides = { jack: this.assets.obstacleKit.jack.clone(), tray: this.assets.obstacleKit.sled.clone() };
+      for (const m of Object.values(this.rides)) { m.visible = false; this.scene.add(m); }
+      this.sparks = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.assets.redGlow, color: 0xffb040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.sparks.visible = false; this.scene.add(this.sparks);
+    }
+    for (const [k, m] of Object.entries(this.rides)) {
+      m.visible = run.riding === k && run.mode !== 'ready';
+      if (!m.visible) continue;
+      m.position.copy(run.world); m.position.y = 0;
+      m.rotation.y = run.camYaw + Math.sin(t * 9) * .02;
+    }
+    this.sparks.visible = run.riding === 'tray' && run.mode === 'running';
+    if (this.sparks.visible) {
+      const fwd = new THREE.Vector3(-Math.sin(run.camYaw), 0, -Math.cos(run.camYaw));
+      this.sparks.position.copy(run.world).addScaledVector(fwd, .95).setY(.08);
+      this.sparks.scale.setScalar(.5 + Math.random() * .5);
+    }
     // grow/shrink smoothly into the giant power
     this.scaleNow = THREE.MathUtils.damp(this.scaleNow ?? 1, run.giant ? 1.55 : 1, 6, dt);
     const scale = this.scaleNow;
@@ -152,7 +172,11 @@ export class PlayerView {
     if (run.sliding && !this.wasSliding) this.squash = .8;
     this.wasAir = air; this.wasSliding = run.sliding;
     this.squash = THREE.MathUtils.damp(this.squash || 0, 0, 9, dt);
-    if (run.rolling && ch.rollAtlas) {
+    if (run.riding === 'jack' && run.mode === 'running') {
+      this.showFrame(ch.atlas, 11, scale);                       // standing on the forks, back view
+    } else if (run.riding === 'tray' && run.mode === 'running') {
+      this.showFrame(ch.atlas, 9, scale);                        // sliding pose inside the tray
+    } else if (run.rolling && ch.rollAtlas) {
       const f = Math.floor(run.distance * .9) % 8;
       this.showFrame(ch.rollAtlas, f, scale);
     } else if (run.mode === 'over' || run.mode === 'ready' || run.mode === 'countdown') {
@@ -173,7 +197,7 @@ export class PlayerView {
     this.card.scale.x *= 1 + sq * .07;
     this.card.scale.y *= (1 - sq * .09) * (idle ? 1 + Math.sin(t * 2.2) * .006 : 1);
     this.group.position.copy(run.world);
-    this.card.position.y = run.y + (run.rolling ? .05 : 0) - (this.footOffset || 0);
+    this.card.position.y = run.y + (run.rolling ? .05 : 0) + (run.riding === 'jack' ? .14 + Math.abs(Math.sin(t * 10)) * .02 : run.riding === 'tray' ? .05 : 0) - (this.footOffset || 0);
     // face the camera around the vertical axis only
     this.group.rotation.y = Math.atan2(camera.position.x - run.world.x, camera.position.z - run.world.z);
     // lean into lane changes

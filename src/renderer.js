@@ -101,15 +101,15 @@ export class View {
     const high = q === 'high', phone = q === 'phone';
     // resolution range the adaptive scaler may move within
     this.prMax = Math.min(devicePixelRatio, high ? 2 : phone ? 2 : 1.25);
-    this.prMin = high ? 1 : phone ? .85 : .75;
+    this.prMin = high ? 1 : phone ? .7 : .75;
     this.pixelRatio = Math.min(this.prMax, high ? 2 : phone ? 1.5 : 1.25);
     const sm = high ? 2048 : 1024;
     this.key.shadow.mapSize.set(sm, sm);
     if (this.key.shadow.map) { this.key.shadow.map.dispose(); this.key.shadow.map = null; }
-    this.activeLights = high ? 10 : 6;
+    this.activeLights = high ? 10 : phone ? 4 : 6;
     this.pool.forEach((l, i) => { l.visible = i < this.activeLights; });
     this.composer.renderTarget1.samples = this.composer.renderTarget2.samples = high ? 4 : 0;
-    this.dust && (this.dust.geometry.drawRange.count = high ? Infinity : 350);
+    this.dust && (this.dust.visible = !phone, this.dust.geometry.drawRange.count = high ? Infinity : 350);
     this.adaptT = 0; this.adaptN = 0; this.goodWindows = 0;
     this.resize();
   }
@@ -134,6 +134,8 @@ export class View {
     this.renderer.setSize(w, h, false);
     this.composer.setPixelRatio(this.pixelRatio || 1);
     this.composer.setSize(w, h);
+    // glow at half resolution on phones: big saving, almost invisible difference
+    if (this.quality === 'phone') { const pr = this.pixelRatio || 1; this.bloom.setSize(Math.round(w * pr / 2), Math.round(h * pr / 2)); }
     this.camera.aspect = w / h;
     // keep the aisle readable in portrait
     this.camera.fov = w < h ? 74 : 62;
@@ -237,7 +239,7 @@ export class View {
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : (Tk.exposure ?? .95), .05);
 
     // drift dust (strong airflow in the plenum)
-    {
+    if (this.dust.visible) {
       const ws = (T.wind || 0) * dt;
       this.wind ||= { x: 0, z: 0 };
       this.wind.x -= run.seg.fwd.x * ws; this.wind.z -= run.seg.fwd.z * ws;
@@ -255,5 +257,10 @@ export class View {
     this.film.uniforms.uDanger.value = THREE.MathUtils.lerp(this.film.uniforms.uDanger.value, danger * (run.mode === 'running' || run.mode === 'over' ? 1 : 0), .1);
   }
 
-  render() { this.composer.render(); }
+  render() {
+    // phones refresh the shadow map every other frame
+    if (this.quality === 'phone') { this.renderer.shadowMap.autoUpdate = false; this.renderer.shadowMap.needsUpdate = (this.frameN = (this.frameN || 0) + 1) % 2 === 0; }
+    else this.renderer.shadowMap.autoUpdate = true;
+    this.composer.render();
+  }
 }

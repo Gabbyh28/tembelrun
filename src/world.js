@@ -361,10 +361,13 @@ export class Track {
     this.A = assets;
     this.random = Math.random;
     this.segments = new Set();
+    this.queue = [];
   }
 
   reset(random = Math.random) {
     for (const s of this.segments) this.disposeSegment(s);
+    for (const j of this.queue) j.seg.disposed = true;
+    this.queue.length = 0;
     this.segments.clear();
     this.random = random;
     this.themeIndex = 0;
@@ -373,9 +376,27 @@ export class Track {
     this.seen = new Set([firstTheme]);
     const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: Math.max(110, worldLength(0, this.random)), turns: this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
     this.populate(first, 0);
+    this.immediate = true;
     this.build(first);
     this.ensureChildren(first);
+    this.immediate = false;
     return first;
+  }
+
+  // Compile every material and upload every texture once at load, so the first
+  // visit to a world doesn't stall while the GPU compiles shaders.
+  async prewarm(renderer, camera) {
+    const temps = [];
+    for (const theme of THEME_ORDER) {
+      const seg = new Segment({ origin: new THREE.Vector3(0, -500, 0), dir: 0, length: 70, turns: { left: true, right: false }, theme, distanceAtStart: 600, seed: 7 });
+      seg.ride = { type: temps.length % 2 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 30 };
+      this.populate(seg, 600); this.build(seg); temps.push(seg);
+    }
+    const textures = new Set();
+    this.scene.traverse(o => { const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; for (const m of ms) for (const k of ['map', 'normalMap', 'roughnessMap', 'emissiveMap', 'alphaMap']) if (m[k]) textures.add(m[k]); });
+    for (const t of textures) renderer.initTexture(t);
+    try { await renderer.compileAsync(this.scene, camera); } catch { renderer.compile(this.scene, camera); }
+    for (const s of temps) this.disposeSegment(s);
   }
 
   pickTurns() {
@@ -404,7 +425,7 @@ export class Track {
         if (len > 45) child.ride = { type: this.random() < .5 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 10 + len };
       }
       this.populate(child, dist);
-      this.build(child);
+      if (this.immediate) this.build(child); else this.queueBuild(child);
       seg.children[side] = child;
     }
   }
@@ -430,6 +451,7 @@ export class Track {
   }
 
   disposeSegment(seg) {
+    seg.disposed = true;
     this.scene.remove(seg.group);
     seg.group.traverse(o => { if (o.userData.ownGeo && o.geometry) o.geometry.dispose(); });
     this.segments.delete(seg);
@@ -508,7 +530,21 @@ export class Track {
   }
 
   /* ---------- visuals ---------- */
-  build(seg) {
+  build(seg) { for (const _ of this.buildSteps(seg)); }
+
+  // Build a segment a little at a time (a few ms per frame) so turning into a
+  // new world never causes a long frame on phones.
+  queueBuild(seg) { this.queue.push({ seg, it: this.buildSteps(seg) }); }
+  pump(budgetMs = 4) {
+    const t0 = performance.now();
+    while (this.queue.length && performance.now() - t0 < budgetMs) {
+      const job = this.queue[0];
+      if (job.seg.disposed) { this.queue.shift(); continue; }
+      if (job.it.next().done) this.queue.shift();
+    }
+  }
+
+  *buildSteps(seg) {
     const A = this.A, g = seg.group, T = THEMES[seg.theme];
     const L = seg.length, u0 = seg.startU, uEnd = L + HALF;
     const own = m => { m.userData.ownGeo = true; return m; };
@@ -537,6 +573,7 @@ export class Track {
       hd.material = A.rackBody; hd.position.set(0, 3.4 + 1.7, -u0); g.add(hd);
       const hd2 = hd.clone(); hd2.rotation.y = Math.PI; g.add(hd2);
     }
+    yield;
     if (T.kind !== 'racks') {
       buildRoom(T.kind, { g, own, seg, A, R: A.R, T, L, u0, uEnd, HALF, AISLE, left: seg.turns.left, right: seg.turns.right, r: rng(seg.seed * 13 + 5) });
     } else {
@@ -591,6 +628,7 @@ export class Track {
         }
       });
 
+      yield;
       // Containment panels above racks + fibre duct along each row
       const panelH = CEILING - RACK.h - .02;
       const duct = A.duct(T.duct);
@@ -622,6 +660,7 @@ export class Track {
         m.position.set((wallFrom + wallTo) / 2, RACK.h + panelH / 2 + .02, -(uEnd + .04)); g.add(m);
       }
 
+      yield;
       // Ceiling
       {
         const len = uEnd - u0 + RACK.d;
@@ -630,6 +669,7 @@ export class Track {
         const m = own(new THREE.Mesh(geo, A.ceiling)); m.position.set(0, CEILING, -(u0 + len / 2)); g.add(m);
       }
 
+      yield;
       // Centre ladder tray with a fibre bundle
       {
         const len = uEnd - u0;
@@ -643,6 +683,7 @@ export class Track {
         f.position.set(-.18, 3.27, -u0); g.add(f);
       }
 
+      yield;
       // Linear LED fixtures (emissive + real lights pooled in game)
       {
         const xs = [-1.7, 1.7];
@@ -665,6 +706,7 @@ export class Track {
       }
     }
 
+    yield;
     // Row sign hanging at the start of the aisle
     if (!seg.first || true) {
       const sm = own(new THREE.Mesh(new THREE.PlaneGeometry(2.4, .45), A.sign(seg.theme)));
@@ -681,6 +723,7 @@ export class Track {
       const sign = own(new THREE.Mesh(new THREE.PlaneGeometry(3.2, .6), A.rideSign(seg.ride.type))); sign.position.set(0, 2.6, -(seg.ride.from - 2)); g.add(sign);
     }
 
+    yield;
     // Obstacles
     for (const o of seg.obstacles) {
       let mesh;
@@ -695,6 +738,7 @@ export class Track {
       o.mesh = mesh; g.add(mesh);
     }
 
+    yield;
     // QSFP modules (instanced so a segment is ~2 draw calls)
     if (seg.chips.length) {
       const im = new THREE.InstancedMesh(A.qsfp.geo, A.qsfp.mats, seg.chips.length);

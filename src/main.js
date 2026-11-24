@@ -49,6 +49,8 @@ async function boot() {
   await Promise.all(CHARACTERS.map(c => loadAtlas(c.atlas)));
   await player.setCharacter(character);
   await hanan.load();
+  loadingText.textContent = 'מכינים את כל העולמות…'; $('loadFill').style.width = '88%';
+  await track.prewarm(view.renderer, view.camera);
   run.reset(character); run.mode = 'ready';
   // warm up shaders so the first frames don't hitch
   view.update(run, .016, 0);
@@ -318,6 +320,7 @@ async function boot() {
     fpsAcc += rawDt; fpsN++;
     if (fpsAcc > .5) { if (!$('fps').hidden) $('fps').textContent = `${Math.round(fpsN / fpsAcc)} FPS · ${view.pixelRatio.toFixed(2)}x · ${view.quality}`; fpsAcc = 0; fpsN = 0; }
     run.update(dt);
+    track.pump(run.mode === 'running' ? 3 : 8);
     for (const ev of run.events) {
       audio.play(ev);
       if (ev.type === 'power') { toast(ev.name, 1800); $('powerName').textContent = character.power.name; $('powerBar').hidden = false; }
@@ -357,7 +360,7 @@ async function boot() {
     for (const seg of track.segments) {
       if (seg === run.seg || seg.parent === run.seg) track.updateChips(seg, t);
       const rel = seg === run.seg ? run.u : seg.parent === run.seg ? run.u - run.seg.length : seg === run.oldSeg ? seg.length + HALF : -1e9;
-      track.updateCords(seg, rel - 6, rel + 34);
+      track.updateCords(seg, rel - 6, rel + (view.quality === 'high' ? 34 : 22));
       if (rel > -60) track.updateMovers(seg, t, dt);
       for (const p of seg.powerups) if (p.mesh) { p.mesh.rotation.y = t * 1.5; p.mesh.position.y = p.y + Math.sin(t * 3) * .12; p.mesh.getObjectByName('spin')?.rotation.set(t, t * .7, 0); }
     }

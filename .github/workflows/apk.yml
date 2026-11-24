@@ -1,0 +1,73 @@
+name: Build Android APK
+on:
+  push:
+    branches: [main, claude/dreamy-goldberg-f954e9]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: apk
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      # The signing key lives only in the repo's private Actions cache (or in the
+      # ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD secrets if you add them),
+      # never in git. A stable key lets each new APK install over the previous one.
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/tembel-signing
+          key: tembel-signing-key-v1
+      - name: Prepare signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p ~/tembel-signing
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > ~/tembel-signing/release.keystore
+            echo "$KS_PASS" > ~/tembel-signing/pass
+          elif [ ! -f ~/tembel-signing/release.keystore ]; then
+            openssl rand -hex 16 > ~/tembel-signing/pass
+            keytool -genkeypair -keystore ~/tembel-signing/release.keystore -alias tembelrun -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$(cat ~/tembel-signing/pass)" -keypass "$(cat ~/tembel-signing/pass)" -dname "CN=Tembel Run, C=IL"
+          fi
+          echo "ANDROID_KEYSTORE=$HOME/tembel-signing/release.keystore" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS=tembelrun" >> $GITHUB_ENV
+          echo "::add-mask::$(cat ~/tembel-signing/pass)"
+          echo "ANDROID_KEYSTORE_PASSWORD=$(cat ~/tembel-signing/pass)" >> $GITHUB_ENV
+      - name: Build signed APK
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../tembel-run.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tembel-run-apk
+          path: tembel-run.apk
+      - name: Publish to the "apk-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest tembel-run.apk \
+            --title "Tembel Run — Android APK (build ${{ github.run_number }})" \
+            --notes "הורידו את tembel-run.apk לטלפון ופתחו אותו כדי להתקין. גרסה ${{ github.run_number }}." \
+            --target ${{ github.sha }}

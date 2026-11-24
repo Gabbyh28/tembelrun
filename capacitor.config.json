@@ -1,0 +1,7 @@
+{
+  "appId": "com.tembelrun.game",
+  "appName": "Tembel Run",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#06090e" },
+  "server": { "androidScheme": "https" }
+}

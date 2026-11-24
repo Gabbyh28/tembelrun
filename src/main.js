@@ -388,7 +388,8 @@ async function boot() {
 }
 
 // installable app + offline play (only on the real site, not inside embeds)
-if ('serviceWorker' in navigator && window.top === window && location.protocol === 'https:') {
+const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+if (!isNativeApp && 'serviceWorker' in navigator && window.top === window && location.protocol === 'https:') {
   addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }
 

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#06090e">
+  <meta name="description" content="משחק ריצה תלת־ממדי בדאטה סנטר: פונים בצמתים, קופצים מעל כבלים, גולשים מתחת למגשים ואוספים מודולי QSFP.">
+  <title>Tembel Run</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<main id="game">
+  <canvas id="world" aria-label="מסלול ריצה תלת־ממדי בדאטה סנטר"></canvas>
+
+  <header class="top">
+    <div class="brand" dir="ltr"><span class="brand-mark">▥</span><span>TEMBEL <b>RUN</b><small>DATA CENTER / NIGHT SHIFT</small></span></div>
+    <div class="tools">
+      <button id="settingsOpen" class="icon" aria-label="הגדרות">⚙</button>
+      <button id="musicToggle" class="icon" aria-label="מוזיקה">♫</button>
+      <button id="sfxToggle" class="icon" aria-label="אפקטים">🔊</button>
+      <button id="pauseBtn" class="icon" aria-label="השהיה" hidden>Ⅱ</button>
+    </div>
+  </header>
+
+  <section id="hud" hidden>
+    <div class="stat"><small>מרחק</small><strong id="hudDistance">0</strong><span>מ׳</span></div>
+    <div class="stat chips"><small dir="ltr">QSFP</small><strong id="hudChips">0</strong></div>
+    <div class="stat"><small>ניקוד</small><strong id="hudScore">0</strong><span id="hudMult"></span></div>
+  </section>
+  <div id="powerBar" hidden><span id="powerName"></span><i><b id="powerFill"></b></i></div>
+  <div id="danger" hidden><b>⚠</b> ההשבתה מתקרבת</div>
+  <div id="turnCue" hidden>
+    <span class="arrow left" id="cueLeft">◀</span>
+    <span class="cue-text" id="cueText">פנייה</span>
+    <span class="arrow right" id="cueRight">▶</span>
+  </div>
+  <div id="roomBadge" hidden></div>
+  <div id="radio" hidden><strong>חנן בקשר</strong><span id="radioText"></span></div>
+  <div id="toast"></div>
+  <div id="countdown" hidden><strong id="countNum">3</strong></div>
+
+  <div id="touchControls" hidden>
+    <button data-act="left" aria-label="שמאלה">◀</button>
+    <button data-act="jump" aria-label="קפיצה">▲</button>
+    <button data-act="slide" aria-label="גלישה">▼</button>
+    <button data-act="right" aria-label="ימינה">▶</button>
+  </div>
+
+  <section id="start" class="screen">
+    <div class="intro">
+      <div class="eyebrow"><i></i>משמרת לילה. הכול נדלק.</div>
+      <h1 dir="ltr">TEMBEL<br><em>RUN</em></h1>
+      <h2>הדאטה סנטר לא מחכה לך.</h2>
+      <p>רוצו בין שורות הארונות, פנו בצמתים, התחמקו מציוד בדרך ואספו כמה שיותר מודולי QSFP. ההשבתה רודפת אחריכם.</p>
+      <button id="chooseCharacter" class="character-choice">
+        <canvas id="characterThumb" width="96" height="96"></canvas>
+        <span><small>הדמות שלך</small><strong id="characterName">הטכנאי</strong><em id="characterPower"></em></span>
+        <span class="change">החלפה</span>
+      </button>
+      <button id="play" class="primary">מתחילים משמרת <span>◀</span></button>
+      <div class="record">השיא שלך <strong id="bestStart">0</strong> נק׳ · <span id="bestDist">0</span> מ׳</div>
+    </div>
+    <div class="instructions">
+      <div><b>↔</b><span>החליקו לצדדים<small>החלפת נתיב · פנייה בצומת</small></span></div>
+      <div><b>↑</b><span>החליקו למעלה<small>קפיצה מעל כבלים ורצפה פתוחה</small></span></div>
+      <div><b>↓</b><span>החליקו למטה<small>גלישה מתחת למגשי כבלים</small></span></div>
+      <p>במחשב: חצים או WASD · רווח לקפיצה · P להשהיה</p>
+    </div>
+  </section>
+
+  <section id="paused" class="screen modal" hidden>
+    <div class="panel">
+      <div class="eyebrow" dir="ltr">TAKE A BREATHER</div>
+      <h2>המשמרת בהפסקה</h2>
+      <button id="resume" class="primary">ממשיכים לרוץ ◀</button>
+      <button id="restart" class="secondary">ריצה חדשה</button>
+      <button id="quit" class="secondary">למסך הראשי</button>
+    </div>
+  </section>
+
+  <section id="over" class="screen modal" hidden>
+    <div class="panel">
+      <div class="eyebrow" dir="ltr">CONNECTION LOST</div>
+      <h2>סוף המשמרת</h2>
+      <p id="reason"></p>
+      <div class="result">
+        <div><strong id="finalScore">0</strong><span>נקודות</span></div>
+        <div><strong id="finalDistance">0</strong><span>מטרים</span></div>
+        <div><strong id="finalChips">0</strong><span>QSFP</span></div>
+      </div>
+      <div id="newRecord" hidden>שיא חדש!</div>
+      <p id="hostResult"></p>
+      <button id="again" class="primary">עוד משמרת ↻</button>
+      <button id="home" class="secondary">חזרה למסך הראשי</button>
+    </div>
+  </section>
+
+  <dialog id="characterDialog">
+    <div class="dialog-head"><h2>בחירת דמות</h2><button class="icon" data-close>×</button></div>
+    <div id="characterGrid"></div>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <div class="dialog-head"><h2>הגדרות</h2><button class="icon" data-close>×</button></div>
+    <label class="row">איכות גרפיקה
+      <select id="quality"><option value="auto">אוטומטית</option><option value="high">גבוהה (ריאליסטית)</option><option value="smooth">ביצועים</option></select>
+    </label>
+    <label class="row">עוצמת מוזיקה<input id="musicVol" type="range" min="0" max="100" step="5"></label>
+    <label class="row">עוצמת אפקטים<input id="sfxVol" type="range" min="0" max="100" step="5"></label>
+    <label class="row">צללים<input id="shadows" type="checkbox"></label>
+    <label class="row">כפתורי שליטה על המסך<input id="touchSetting" type="checkbox"></label>
+    <small>ההגדרות נשמרות במכשיר הזה.</small>
+  </dialog>
+
+  <div id="loading"><div class="spinner"></div><span id="loadingText">מדליקים את הדאטה סנטר…</span></div>
+</main>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

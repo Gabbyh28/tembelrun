@@ -31,7 +31,7 @@
 
   <section id="hud" hidden>
     <div class="stat"><small>מרחק</small><strong id="hudDistance">0</strong><span>מ׳</span></div>
-    <div class="stat chips"><small dir="ltr">QSFP</small><strong id="hudChips">0</strong></div>
+    <div class="stat chips"><small dir="ltr"><i class="qi"></i>QSFP</small><strong id="hudChips">0</strong></div>
     <div class="stat"><small>ניקוד</small><strong id="hudScore">0</strong><span id="hudMult"></span></div>
   </section>
   <div id="powerBar" hidden><span id="powerName"></span><i><b id="powerFill"></b></i></div>
@@ -72,7 +72,7 @@
       <button id="play" class="primary">מתחילים משמרת <span>◀</span></button>
       <div class="start-row">
         <button id="dailyBtn" class="secondary daily">🗓 אתגר יומי<small id="dailyBest"></small></button>
-        <button id="shopBtn" class="secondary shop">🛒 חנות<small><b id="walletStart">0</b> QSFP</small></button>
+        <button id="shopBtn" class="secondary shop">🛒 חנות<small><i class="qi"></i><b id="walletStart">0</b> QSFP</small></button>
       </div>
       <button id="boardBtn" class="secondary" hidden>🏆 טבלת שיאים</button>
       <button id="installBtn" class="secondary" hidden>📲 התקנה כאפליקציה במסך הבית</button>
@@ -130,7 +130,7 @@
   </dialog>
 
   <dialog id="shopDialog">
-    <div class="dialog-head"><h2>חנות</h2><span class="wallet">💠 <b id="walletShop">0</b> QSFP</span><button class="icon" data-close>×</button></div>
+    <div class="dialog-head"><h2>חנות</h2><span class="wallet"><i class="qi"></i> <b id="walletShop">0</b> QSFP</span><button class="icon" data-close>×</button></div>
     <p class="shop-note">מודולי QSFP שאוספים בריצות נשמרים בארנק. אפשר לקנות בהם שדרוגים ולפתוח דמויות.</p>
     <div id="shopList"></div>
   </dialog>

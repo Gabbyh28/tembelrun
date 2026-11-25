@@ -144,7 +144,7 @@ async function boot() {
       const el = document.createElement('div'); el.className = 'shop-item';
       el.innerHTML = `<span class="ic">${u.icon}</span><span><strong>${u.name}</strong><small>${u.desc}</small><span class="pips">${u.costs.map((_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</span></span>`;
       const b = document.createElement('button'); b.className = 'buy';
-      b.textContent = cost === null ? 'מקסימום ✓' : `${cost.toLocaleString('he-IL')} 💠`;
+      b.innerHTML = cost === null ? 'מקסימום ✓' : `${cost.toLocaleString('he-IL')} <i class="qi"></i>`;
       b.disabled = cost === null || wallet.balance < cost;
       b.onclick = () => { if (wallet.buyUpgrade(u.id)) { audio.unlock(); audio.play({ type: 'power' }); refreshWallet(); renderShop(); } };
       el.append(b); list.append(el);
@@ -156,7 +156,7 @@ async function boot() {
       const owned = wallet.isUnlocked(ch.id);
       el.innerHTML = `<span class="ic">${owned ? '✅' : '🔒'}</span><span><strong>${ch.name}</strong><small>⚡ ${ch.power.name}</small></span>`;
       const b = document.createElement('button'); b.className = 'buy';
-      b.textContent = owned ? 'פתוח ✓' : `${UNLOCK_COST[ch.id].toLocaleString('he-IL')} 💠`;
+      b.innerHTML = owned ? 'פתוח ✓' : `${UNLOCK_COST[ch.id].toLocaleString('he-IL')} <i class="qi"></i>`;
       b.disabled = owned || wallet.balance < UNLOCK_COST[ch.id];
       b.onclick = () => { if (wallet.unlock(ch.id)) { audio.unlock(); audio.play({ type: 'record' }); refreshWallet(); renderShop(); } };
       el.append(b); list.append(el);
@@ -287,7 +287,7 @@ async function boot() {
     const earned = Math.round(fresh * run.bonus.valueMult * (run.daily ? 2 : 1));
     run.banked = run.chips;
     if (earned > 0) wallet.add(earned);
-    $('earned').textContent = earned > 0 ? `+${earned.toLocaleString('he-IL')} 💠 QSFP לארנק${run.daily ? ' (כפול באתגר היומי)' : ''} · בארנק: ${wallet.balance.toLocaleString('he-IL')}` : `בארנק: ${wallet.balance.toLocaleString('he-IL')} QSFP`;
+    $('earned').innerHTML = earned > 0 ? `+${earned.toLocaleString('he-IL')} <i class="qi"></i> QSFP לארנק${run.daily ? ' (כפול באתגר היומי)' : ''} · בארנק: ${wallet.balance.toLocaleString('he-IL')}` : `בארנק: ${wallet.balance.toLocaleString('he-IL')} QSFP`;
     if (run.daily && score > store.get(todayKey, 0)) store.set(todayKey, score);
     board.submit({ score, character: character.id, daily: run.daily }).then(ok => { if (ok) $('hostResult').textContent += ' · 🏆 עודכן בטבלת השיאים'; });
     refreshWallet(); refreshDaily();
@@ -295,7 +295,7 @@ async function boot() {
     const cost = 75 * Math.pow(2, run.paidRevives);
     $('reviveBuy').hidden = run.revives > 0;
     $('reviveBuy').disabled = wallet.balance < cost;
-    $('reviveBuy').textContent = `🤝 חנן עוזר שוב — ${cost.toLocaleString('he-IL')} 💠 QSFP`;
+    $('reviveBuy').innerHTML = `🤝 חנן עוזר שוב — ${cost.toLocaleString('he-IL')} <i class="qi"></i> QSFP`;
     $('over').hidden = false; $('pauseBtn').hidden = true;
     ['powerBar', 'danger', 'turnCue', 'tutorial'].forEach(id => $(id).hidden = true);
     syncTouch();

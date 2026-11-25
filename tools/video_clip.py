@@ -78,7 +78,7 @@ else:
     cells = [place(i, ref_ground) for i in idx]
 
 if LOOP:
-    start = int((1.1 if kind == 'roll' else .3) * fps)
+    start = int((1.1 if kind == 'roll' else 1.6 if kind == 'chase' else .3) * fps)
     sil = [cv2.resize(c[..., 3], (50, 50)) / 255 for c in cells]
     best = None
     for s0 in range(start, max(start + 1, len(cells) - 14)):

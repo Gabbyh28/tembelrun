@@ -378,3 +378,45 @@ export function qsfpLabelTexture() {
   g.font = '16px monospace'; g.fillText('SR4 850nm  MMF', 14, 52);
   return tex(c);
 }
+
+// QSFP module top plate: brushed nickel, the raised cover plate, screw holes,
+// the heat-sink slot at the back. The bottom-left corner stays plain metal and is
+// what the side faces sample.
+export function qsfpTopTexture() {
+  const W = 256, H = 640;
+  const [c, g] = canvas(W, H);
+  const r = rand(77);
+  g.fillStyle = '#cdd0d3'; g.fillRect(0, 0, W, H);
+  // brushed along the length
+  for (let i = 0; i < 900; i++) { const x = r() * W, a = .01 + r() * .025; g.fillStyle = r() < .5 ? `rgba(255,255,255,${a})` : `rgba(40,40,40,${a})`; g.fillRect(x, 0, 1 + r() * 1.5, H); }
+  // raised cover plate (rear 3/4) with a soft shadowed edge
+  const top = 40, bot = 470;
+  g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(10, top, W - 20, 5); g.fillRect(10, bot - 2, W - 20, 4);
+  g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(10, top, 4, bot - top); g.fillRect(W - 14, top, 4, bot - top);
+  g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(14, top + 5, W - 28, 2);
+  // heat-sink slot near the back
+  g.fillStyle = '#2b2d30'; g.fillRect(W - 70, top + 22, 26, 150);
+  g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(W - 70, top + 22, 26, 3);
+  // screw holes
+  const hole = (x, y) => { g.fillStyle = '#1b1c1e'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.arc(x + 1.5, y + 1.5, 6, .2, 1.4); g.lineWidth = 1.5; g.strokeStyle = 'rgba(255,255,255,.4)'; g.stroke(); };
+  hole(60, 250); hole(190, 330); hole(34, bot - 20); hole(W - 34, bot - 20);
+  // front collar area (under the blue latch) slightly darker
+  g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, bot + 20, W, H - bot - 20);
+  return tex(c);
+}
+
+// Front of the LC duplex receptacle: two square ports with their latch tabs.
+export function qsfpPortTexture() {
+  const [c, g] = canvas(256, 128);
+  g.fillStyle = '#a9adb1'; g.fillRect(0, 0, 256, 128);
+  for (let i = 0; i < 200; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * .05})`; g.fillRect(Math.random() * 256, 0, 1, 128); }
+  g.fillStyle = '#8d9196'; g.fillRect(14, 10, 228, 108);
+  for (const x of [40, 140]) {
+    g.fillStyle = '#d4d6d9'; g.fillRect(x - 6, 22, 88, 88);
+    g.fillStyle = '#24262a'; g.fillRect(x, 30, 76, 74);
+    g.fillStyle = '#3a3d42'; g.fillRect(x + 8, 38, 60, 60);
+    g.fillStyle = '#e3e5e7'; g.fillRect(x + 26, 18, 24, 14);    // latch tab
+    g.fillStyle = '#0d0e10'; g.beginPath(); g.arc(x + 38, 70, 7, 0, 7); g.fill();   // ferrule bore
+  }
+  return tex(c);
+}

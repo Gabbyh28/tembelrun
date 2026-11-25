@@ -169,19 +169,41 @@ export class Assets {
   }
 }
 
+// QSFP-100G pickup, modelled on the real module: nickel body with the raised
+// cover plate, LC duplex receptacle at the front and the blue pull-tab loop.
+// ~2.3x real size so it reads at running speed. Four materials, one draw call.
 function buildQSFP() {
-  // ~2.2x real size so it reads at running speed
-  const body = new THREE.BoxGeometry(.2, .1, .5);
-  const cage = new THREE.BoxGeometry(.21, .02, .3); cage.translate(0, .06, -.08);
-  const tab = new THREE.BoxGeometry(.16, .035, .22); tab.translate(0, .01, .34);
-  const ring = new THREE.BoxGeometry(.04, .04, .06); ring.translate(0, .01, .47);
-  const label = new THREE.PlaneGeometry(.18, .045); label.rotateY(Math.PI / 2); label.rotateZ(0); label.translate(.101, 0, -.05);
-  const geo = mergeGeometries([mergeGeometries([body, cage]), mergeGeometries([tab, ring]), label], true);
-  geo.translate(0, 0, -.05);
+  const plainUV = (geo, keepFace) => {   // every face except `keepFace` samples a plain corner of the texture
+    const uv = geo.attributes.uv;
+    for (let f = 0; f < 6; f++) if (f !== keepFace) for (let k = 0; k < 4; k++) uv.setXY(f * 4 + k, .04 + (k & 1) * .02, .02 + (k >> 1) * .02);
+    return geo;
+  };
+  const strip = g => { g.clearGroups(); return g.index ? g.toNonIndexed() : g; };
+  // body: 0.2 wide, 0.085 tall, 0.5 long; front (port end) towards +z
+  const body = plainUV(new THREE.BoxGeometry(.2, .085, .5), 2);
+  const cover = plainUV(new THREE.BoxGeometry(.19, .008, .34).translate(0, .046, -.07), 2);
+  const metal = mergeGeometries([body, cover].map(strip));
+  // LC receptacle block poking out of the front
+  const port = plainUV(new THREE.BoxGeometry(.16, .066, .05).translate(0, -.004, .27), 4);
+  // blue latch: collar around the front of the body + the pull-tab loop
+  const collar = new THREE.BoxGeometry(.214, .094, .045).translate(0, 0, .225);
+  const loop = new THREE.Shape();
+  loop.moveTo(-.1, 0); loop.lineTo(-.085, .2); loop.quadraticCurveTo(-.125, .27, -.1, .31); loop.lineTo(.1, .31); loop.quadraticCurveTo(.125, .27, .085, .2); loop.lineTo(.1, 0); loop.lineTo(-.1, 0);
+  const hole = new THREE.Path();
+  hole.moveTo(-.07, .02); hole.lineTo(-.06, .2); hole.lineTo(.06, .2); hole.lineTo(.07, .02); hole.lineTo(-.07, .02);
+  loop.holes.push(hole);
+  const tab = new THREE.ExtrudeGeometry(loop, { depth: .022, bevelEnabled: true, bevelThickness: .005, bevelSize: .005, bevelSegments: 1, curveSegments: 5 });
+  tab.rotateX(Math.PI / 2).translate(0, .011, .245);
+  const blue = mergeGeometries([collar, tab].map(strip));
+  // gold-fingered PCB edge sticking out of the back
+  const pcb = new THREE.BoxGeometry(.12, .007, .014).translate(0, -.02, -.256);
+  const geo = mergeGeometries([metal, strip(port), blue, strip(pcb)], true);
   const mats = [
-    new THREE.MeshStandardMaterial({ color: 0xd8dde3, metalness: 1, roughness: .22, envMapIntensity: 1.6 }),
-    new THREE.MeshStandardMaterial({ color: 0x1d7bff, emissive: 0x1d7bff, emissiveIntensity: 2.2, roughness: .35 }),
-    new THREE.MeshStandardMaterial({ map: TX.qsfpLabelTexture(), roughness: .6 }),
+    new THREE.MeshStandardMaterial({ map: TX.qsfpTopTexture(), color: 0xffffff, metalness: .7, roughness: .3, envMapIntensity: 2 }),
+    new THREE.MeshStandardMaterial({ map: TX.qsfpPortTexture(), metalness: .7, roughness: .4, envMapIntensity: 1.3 }),
+    // a touch of glow keeps the pickups readable in the dark aisles
+    new THREE.MeshPhysicalMaterial({ color: 0x1f73d6, emissive: 0x0d4fb0, emissiveIntensity: .55, roughness: .45, clearcoat: .4 }),
+    new THREE.MeshStandardMaterial({ color: 0xc9a23a, metalness: 1, roughness: .3 }),     // gold contact fingers
   ];
   return { geo, mats };
 }

@@ -212,7 +212,7 @@ async function boot() {
 
   // settings
   $('quality').value = settings.quality;
-  $('quality').onchange = e => { settings.quality = e.target.value; store.set('quality', settings.quality); view.setQuality(settings.quality); };
+  $('quality').onchange = e => { settings.quality = e.target.value; if (e.target.value === 'auto') try { localStorage.removeItem('tr.tier'); } catch { /* ignore */ } store.set('quality', settings.quality); view.setQuality(settings.quality); };
   $('shadows').checked = settings.shadows;
   $('shadows').onchange = e => { settings.shadows = e.target.checked; store.set('shadows', settings.shadows); view.setShadows(settings.shadows); };
   const isTouch = matchMedia('(pointer:coarse)').matches;
@@ -360,7 +360,7 @@ async function boot() {
     t += dt;
     view.adapt(rawDt);
     fpsAcc += rawDt; fpsN++;
-    if (fpsAcc > .5) { if (!$('fps').hidden) $('fps').textContent = `${Math.round(fpsN / fpsAcc)} FPS · ${view.pixelRatio.toFixed(2)}x · ${view.quality}`; fpsAcc = 0; fpsN = 0; }
+    if (fpsAcc > .5) { if (!$('fps').hidden) $('fps').textContent = `${Math.round(fpsN / fpsAcc)} FPS · ${view.pixelRatio.toFixed(2)}x · ${view.quality}${view.tier ? ' · T' + view.tier : ''}`; fpsAcc = 0; fpsN = 0; }
     run.update(dt);
     track.pump(run.mode === 'running' ? 3 : 8);
     for (const ev of run.events) {

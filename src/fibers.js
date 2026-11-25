@@ -129,10 +129,10 @@ export function spillGeometry() {
     new THREE.Vector3(0, .1, 0), new THREE.Vector3(.07, .16, 0), new THREE.Vector3(.145, .1, 0),
     new THREE.Vector3(.17, -.1, 0), new THREE.Vector3(.172, -.38, 0),
   ]);
-  const g = new THREE.TubeGeometry(curve, 28, .02, 10);
+  const g = new THREE.TubeGeometry(curve, 14, .02, 6);
   // corrugation: ripple the radius along the tube
   const pos = g.attributes.position, nrm = g.attributes.normal;
-  const seg = 11; // radialSegments + 1
+  const seg = 7; // radialSegments + 1
   for (let i = 0; i < pos.count; i++) {
     const ring = Math.floor(i / seg);
     const k = .0025 * Math.sin(ring * 2.2);

@@ -61,11 +61,8 @@ export class View {
     // the outage: red rolling light behind the runner
     this.outage = new THREE.PointLight(0xff2a14, 0, 14, 2);
     this.scene.add(this.outage);
-    // events: head torch for the blackout, rotating red beacon for alarms
-    this.torch = new THREE.SpotLight(0xfff2dd, 0, 34, .5, .45, 1.4);
-    this.scene.add(this.torch, this.torch.target);
-    this.beacon = new THREE.PointLight(0xff2010, 0, 18, 2);
-    this.scene.add(this.beacon);
+    // events reuse existing lights (an extra light costs every pixel, every frame):
+    // the first pooled light becomes the head torch, the outage light the alarm beacon
     // FM-200 discharge: soft white clouds pouring out of the ceiling
     {
       const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -110,7 +107,32 @@ export class View {
     addEventListener('resize', () => this.resize());
   }
 
+  // Detail tiers below the quality preset, stepped down automatically when even the
+  // lowest resolution can't hold the frame rate: 1 = no glow/film pass,
+  // 2 = + no shadows, 3 = + only two ceiling lights and a lower resolution floor.
+  setTier(n, save = true) {
+    this.tier = Math.max(0, Math.min(3, n));
+    if (save) try { localStorage.setItem('tr.tier', String(this.tier)); } catch { /* ignore */ }
+    this.renderer.shadowMap.enabled = this.key.castShadow = this.shadowsWanted !== false && this.tier < 2;
+    const lights = this.tier >= 3 ? 2 : this.baseLights;
+    if (lights !== this.activeLights) { this.activeLights = lights; this.pool.forEach((l, i) => { l.visible = i < lights; }); }
+    if (this.tier >= 3) { this.prMin = Math.min(this.prMin, .55); }
+    this.scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
+    this.slowWindows = 0;
+  }
+
+  // weak GPUs: start a couple of tiers down instead of stuttering first
+  static weakDevice(renderer) {
+    try {
+      const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+      if (/Mali-T|Mali-G[35][0-9]\b|Adreno \(TM\) [3-5][0-9]{2}|PowerVR|Intel\(R\) (HD|UHD) Graphics [0-9]{3}\b|SwiftShader|llvmpipe/i.test(name)) return true;
+    } catch { /* ignore */ }
+    return (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+  }
+
   setQuality(q) {
+    this.qualitySetting = q;
     if (q === 'auto') {
       const mobile = matchMedia('(pointer:coarse)').matches || Math.min(screen.width, screen.height) < 700;
       q = mobile ? 'phone' : 'high';
@@ -124,11 +146,19 @@ export class View {
     const sm = high ? 2048 : 1024;
     this.key.shadow.mapSize.set(sm, sm);
     if (this.key.shadow.map) { this.key.shadow.map.dispose(); this.key.shadow.map = null; }
-    this.activeLights = high ? 10 : phone ? 4 : 6;
-    this.pool.forEach((l, i) => { l.visible = i < this.activeLights; });
+    this.activeLights = this.baseLights = high ? 10 : phone ? 4 : 3;
     this.composer.renderTarget1.samples = this.composer.renderTarget2.samples = high ? 4 : 0;
     this.dust && (this.dust.visible = !phone, this.dust.geometry.drawRange.count = high ? Infinity : 350);
     this.adaptT = 0; this.adaptN = 0; this.goodWindows = 0;
+    // 'smooth' (performance) is tier 2 straight away; 'auto' remembers what this device needed
+    let tier = 0;
+    if (q === 'smooth') tier = 2;
+    else if (this.qualitySetting === 'auto') {
+      let saved = NaN; try { saved = +(localStorage.getItem('tr.tier') ?? NaN); } catch { /* storage blocked */ }
+      tier = Number.isFinite(saved) ? saved : View.weakDevice(this.renderer) ? 1 : 0;
+    }
+    this.activeLights = -1;
+    this.setTier(tier, false);
     this.resize();
   }
 
@@ -140,11 +170,17 @@ export class View {
     const avg = this.adaptT / this.adaptN;
     this.adaptT = 0; this.adaptN = 0;
     let pr = this.pixelRatio;
-    if (avg > 1 / 50) { pr = Math.max(this.prMin, pr - (avg > 1 / 35 ? .25 : .12)); this.goodWindows = 0; }
+    if (avg > 1 / 50) {
+      // already at the lowest resolution and still slow: drop a detail tier (auto mode only)
+      if (pr <= this.prMin + .01 && avg > 1 / 42 && this.qualitySetting === 'auto' && this.tier < 3) {
+        if (++this.slowWindows >= 2) this.setTier(this.tier + 1);
+      }
+      pr = Math.max(this.prMin, pr - (avg > 1 / 35 ? .25 : .12)); this.goodWindows = 0;
+    }
     else if (avg < 1 / 58) { if (++this.goodWindows >= 3) { pr = Math.min(this.prMax, pr + .1); this.goodWindows = 0; } }
     if (Math.abs(pr - this.pixelRatio) > .01) { this.pixelRatio = pr; this.resize(); }
   }
-  setShadows(on) { this.renderer.shadowMap.enabled = on; this.key.castShadow = on; this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); }
+  setShadows(on) { this.shadowsWanted = on; this.setTier(this.tier ?? 0, false); }
 
   resize() {
     const w = innerWidth, h = innerHeight;
@@ -249,6 +285,8 @@ export class View {
     const heat = run.chaserHeat || 0;
     this.outage.position.set(p.x - fwd.x * run.chaserDist, 1.4, p.z - fwd.z * run.chaserDist);
     this.outage.intensity = heat * heat * (14 + Math.sin(t * 18) * 5);
+    const beacon = (this.alarm || 0) * (Math.sin(t * 9) > 0 ? 14 : 2);
+    if (beacon > this.outage.intensity) { this.outage.position.copy(this.alarmPos); this.outage.intensity = beacon; }
 
     // theme fog
     const T = THEMES[run.seg.theme];
@@ -291,14 +329,16 @@ export class View {
       this.key.intensity *= 1 - dark * .85;
     }
     this.darkness = dark;
-    // head torch from just above the runner's head, aimed down the aisle
-    this.torch.intensity = dark * 140;
-    this.torch.position.set(p.x - fwd.x * .6, 2.1 + run.y, p.z - fwd.z * .6);
-    this.torch.target.position.set(p.x + fwd.x * 14, .3 + run.y * .5, p.z + fwd.z * 14);
-    // beacon rides ahead of the runner and flashes
-    const alarm = Math.max(dark, gas);
-    this.beacon.position.set(p.x + fwd.x * 9 + Math.cos(t * 6) * 1.5, 3.3, p.z + fwd.z * 9 + Math.sin(t * 6) * 1.5);
-    this.beacon.intensity = alarm * (Math.sin(t * 9) > 0 ? 14 : 2);
+    // head torch: a warm pool of light on the floor just ahead of the runner
+    if (dark > .01) {
+      const l = this.pool[0];
+      l.position.set(p.x + fwd.x * 4.5, 1.7 + run.y, p.z + fwd.z * 4.5);
+      l.color.setHex(0xfff2dd); l.intensity = Math.max(l.intensity, dark * 26);
+    }
+    // alarm beacon: borrows the (red) outage light, spinning ahead of the runner
+    this.alarm = Math.max(dark, gas);
+    this.alarmPos = this.alarmPos || new THREE.Vector3();
+    this.alarmPos.set(p.x + fwd.x * 9 + Math.cos(t * 6) * 1.5, 3.3, p.z + fwd.z * 9 + Math.sin(t * 6) * 1.5);
     // gas clouds
     for (const sp of this.gas) {
       const d = sp.userData;
@@ -323,6 +363,8 @@ export class View {
     // phones refresh the shadow map every other frame
     if (this.quality === 'phone') { this.renderer.shadowMap.autoUpdate = false; this.renderer.shadowMap.needsUpdate = (this.frameN = (this.frameN || 0) + 1) % 2 === 0; }
     else this.renderer.shadowMap.autoUpdate = true;
-    this.composer.render();
+    // tier 1+: draw straight to the screen (tone mapping still applies), skipping glow + film
+    if (this.tier >= 1) this.renderer.render(this.scene, this.camera);
+    else this.composer.render();
   }
 }

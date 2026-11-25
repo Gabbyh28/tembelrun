@@ -646,6 +646,7 @@ export function warehouseAssets(A, R) {
   R.vest = new THREE.MeshStandardMaterial({ map: vestTexture(), roughness: .6, emissive: 0x222200 });
   R.jeans = new THREE.MeshStandardMaterial({ color: 0x2c3e5c, roughness: .8 });
   R.palletGeo = palletGeometry();
+  R.palletLowGeo = mergeGeometries([new THREE.BoxGeometry(1.2, .022, 1).translate(0, .133, 0), ...[-.55, 0, .55].map(x => new THREE.BoxGeometry(.1, .12, 1).translate(x, .06, 0))].map(g => { g.deleteAttribute('uv'); return g; }));
 }
 
 function palletGeometry() {
@@ -794,12 +795,13 @@ export function buildWarehouse(ctx) {
       if (ub - ua < 8) continue;
       f.position.set(side * (HALF + ZONE / 2 + .2), 0, -ua);
       g.add(f);
+      f.userData.dynamic = true;
       seg.movers.push({ mesh: f, axisX: side * (HALF + ZONE / 2 + .2), ua, ub, u: ua + r() * (ub - ua), dir: r() < .5 ? 1 : -1, speed: 2.2 + r() * 1.5, phase: r() * 10 });
     }
   }
   instanced(ctx, new THREE.BoxGeometry(.09, 8, .09), R.rackBlue, uprights);
   instanced(ctx, new THREE.BoxGeometry(.06, .13, 2.7), R.rackOrange, beams);
-  instanced(ctx, R.palletGeo, R.wood, pallets);
+  instanced(ctx, R.palletLowGeo, R.wood, pallets);     // up on the racks: a simple deck + runners is plenty
   const li = instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.load, loads);
   if (li) { loadCols.forEach((c, i) => li.setColorAt(i, c)); li.instanceColor.needsUpdate = true; }
   instanced(ctx, new THREE.BoxGeometry(1, 1, 1), R.crate, crates);
@@ -924,7 +926,7 @@ function storeroomAssets(A, R) {
   R.spoolWood = new THREE.MeshStandardMaterial({ color: 0xa77b4a, roughness: .85 });
   R.ladderWood = new THREE.MeshStandardMaterial({ color: 0xc89a5e, roughness: .8 });
   R.gbicGeo = (() => { const b = new THREE.BoxGeometry(.32, .14, .22); return b; })();
-  R.coilGeo = new THREE.TorusGeometry(.16, .045, 8, 22).rotateX(Math.PI / 2);
+  R.coilGeo = new THREE.TorusGeometry(.16, .045, 5, 12).rotateX(Math.PI / 2);
 }
 
 function woodenLadder(R, h = 4.2) {
@@ -986,7 +988,7 @@ function hananStockTaker(ctx, x, u, faceRight, count) {
   g.add(card);
   const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: stockLabel(count), depthWrite: false }));
   label.scale.set(1.5, .375, 1); label.position.y = 2.25; g.add(label);
-  g.position.set(x, 0, -u); g.rotation.y = faceRight ? .5 : -.5;
+  g.position.set(x, 0, -u); g.rotation.y = faceRight ? .5 : -.5; g.userData.dynamic = true;
   ctx.g.add(g);
   let tex = null, frame = -1;
   const FR = [[63, 34, 309, 824, 224.1], [476, 34, 309, 824, 635.4], [919, 41, 413, 817, 1090.5], [1328, 45, 336, 813, 1524.9]];

@@ -920,8 +920,52 @@ export class Track {
       const m = A.obstacleKit.power.clone();
       m.position.set(pu.x, pu.y, -pu.u); pu.mesh = m; g.add(m);
     }
+    yield* this.bakeStatic(seg);
     this.scene.add(g);
     this.segments.add(seg);
+  }
+
+  // Merge the aisle's static set dressing into one mesh per material per 24 m
+  // chunk: a warehouse aisle drops from ~1000 draw calls to well under 200.
+  // Moving / breakable things (obstacles, power-ups, rides, movers) stay separate.
+  *bakeStatic(seg) {
+    const g = seg.group;
+    const dyn = new Set([seg.rideMesh, seg.chipMesh, ...seg.obstacles.map(o => o.mesh), ...seg.powerups.map(p => p.mesh)].filter(Boolean));
+    g.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(g.matrixWorld).invert();
+    const buckets = new Map();
+    const visit = o => {
+      if (dyn.has(o) || o.userData.dynamic) return;
+      if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && !Array.isArray(o.material) && !o.material.transparent && o.visible && !o.customDepthMaterial && !o.geometry.morphAttributes?.position) {
+        const geo = o.geometry, attrs = Object.keys(geo.attributes).sort().join(',');
+        if (geo.attributes.position && geo.attributes.normal) {
+          const c = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
+          const key = `${o.material.uuid}|${attrs}|${!!geo.index}|${o.castShadow}|${o.receiveShadow}|${Math.floor(-c.z / 24)}`;
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(o);
+        }
+      }
+      for (const ch of o.children) visit(ch);
+    };
+    for (const ch of g.children) visit(ch);
+    const m4 = new THREE.Matrix4();
+    for (const list of buckets.values()) {
+      if (list.length < 2) continue;
+      const geos = list.map(o => {
+        const gg = o.geometry.clone();
+        for (const k of Object.keys(gg.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) gg.deleteAttribute(k);
+        gg.clearGroups();
+        return gg.applyMatrix4(m4.multiplyMatrices(inv, o.matrixWorld));
+      });
+      const merged = mergeGeometries(geos);
+      geos.forEach(x => x.dispose());
+      if (!merged) continue;
+      const src = list[0], mesh = new THREE.Mesh(merged, src.material);
+      mesh.castShadow = src.castShadow; mesh.receiveShadow = src.receiveShadow; mesh.userData.ownGeo = true;
+      for (const o of list) { o.parent.remove(o); if (o.userData.ownGeo) o.geometry.dispose(); }
+      g.add(mesh);
+      yield;
+    }
   }
 
   updateMovers(seg, t, dt) { if (seg.movers.length) updateMovers(seg, t, dt); }

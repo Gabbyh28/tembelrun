@@ -165,7 +165,7 @@ export class PlayerView {
     this.updateGas(run, dt, camera);
     // ride vehicles under the runner
     if (!this.rides) {
-      this.rides = { jack: this.assets.obstacleKit.jack.clone(), tray: this.assets.obstacleKit.sled.clone() };
+      this.rides = { jack: this.assets.obstacleKit.jack.clone(), tray: this.assets.obstacleKit.sled.clone(), zip: this.assets.obstacleKit.trolley.clone() };
       for (const m of Object.values(this.rides)) { m.visible = false; this.scene.add(m); }
       this.sparks = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.assets.redGlow, color: 0xffb040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       this.sparks.visible = false; this.scene.add(this.sparks);
@@ -173,7 +173,7 @@ export class PlayerView {
     for (const [k, m] of Object.entries(this.rides)) {
       m.visible = run.riding === k && run.mode !== 'ready';
       if (!m.visible) continue;
-      m.position.copy(run.world); m.position.y = 0;
+      m.position.copy(run.world); m.position.y = k === 'zip' ? 1.55 + 2.2 : 0;
       m.rotation.y = run.camYaw + Math.sin(t * 9) * .02;
     }
     this.sparks.visible = run.riding === 'tray' && run.mode === 'running';
@@ -192,7 +192,11 @@ export class PlayerView {
     if (run.sliding && !this.wasSliding) this.squash = .8;
     this.wasAir = air; this.wasSliding = run.sliding;
     this.squash = THREE.MathUtils.damp(this.squash || 0, 0, 9, dt);
-    if (run.riding === 'jack' && run.mode === 'running') {
+    if (run.riding === 'zip' && run.mode === 'running') {
+      // hanging from the trolley handle, legs swinging
+      if (this.hasAnim('jump')) { const n = FRAMES[ch.atlas].anims.jump.count; this.showAnim('jump', Math.floor(n * .42) + (Math.floor(t * 5) % 2), scale); }
+      else this.showFrame(ch.atlas, 8, scale);
+    } else if (run.riding === 'jack' && run.mode === 'running') {
       if (this.hasAnim('idle')) this.showAnim('idle', this.animLoop('idle', dt, 1.4), scale);   // riding the forks, balancing
       else this.showFrame(ch.atlas, 11, scale);
     } else if (run.riding === 'tray' && run.mode === 'running') {
@@ -247,7 +251,7 @@ export class PlayerView {
     // face the camera around the vertical axis only
     this.group.rotation.y = Math.atan2(camera.position.x - run.world.x, camera.position.z - run.world.z);
     // lean into lane changes
-    this.card.rotation.z = THREE.MathUtils.damp(this.card.rotation.z, -run.lateralVel * .03 + (air ? -run.vy * .004 : 0), 12, dt);
+    this.card.rotation.z = THREE.MathUtils.damp(this.card.rotation.z, -run.lateralVel * .03 + (air ? -run.vy * .004 : 0) + (run.riding === 'zip' ? Math.sin(t * 2.6) * .05 : 0), 12, dt);
     const sh = 1.1 * scale * (1 - Math.min(.6, run.y * .25));
     this.shadow.scale.set(sh * (run.rolling ? 1.2 : .9), sh * .7, 1);
     this.shadow.material.opacity = .8 - Math.min(.5, run.y * .2);

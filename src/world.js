@@ -35,6 +35,15 @@ const ROOM_OBSTACLES = {
   plenum: { jump: 'condensate', slide: 'duct', jumpP: .22, slideP: .26, dodge: ['filters', 'filters', 'boxes'] },
   warehouse: { jump: 'pallets', slide: 'tunnel', jumpP: .16, slideP: .16, dodge: ['jack', 'jack', 'crate', 'wrapped'] },
 };
+// tall rooms get a zip line instead of a ground ride
+const ZIP_THEMES = new Set(['warehouse', 'generator', 'storeroom']);
+const ZIP_H = 1.55 + 2.2;              // cable height (ZIP_Y in game.js + reach of the arms)
+// special events and the rooms they can happen in
+const EVENTS = {
+  blackout: t => !THEMES[t].sun,
+  fm200: t => THEMES[t].kind === 'racks',
+  tiles: t => THEMES[t].kind === 'racks',
+};
 const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'storeroom', 'generator', 'power'];
 
 // Each world lasts a random 12-32 seconds at the speed you'll be running there.
@@ -103,6 +112,7 @@ export class Assets {
       const lip = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .7, 12), m.material); lip.rotation.z = Math.PI / 2; lip.position.set(0, .12, -.86); sled.add(lip);
       this.obstacleKit.sled = sled;
     }
+    buildExtraKit(this);
     this.rideSigns = {};
   }
   rackFront(theme, v) {
@@ -138,7 +148,8 @@ export class Assets {
   }
   rideSign(type) {
     if (!this.rideSigns[type]) {
-      const t = TX.signTexture(type === 'jack' ? 'RIDE  ▶  PALLET JACK' : 'SLIDE  ▶  CABLE TRAY', type === 'jack' ? 'קופצים על עגלת משטחים!' : 'גולשים במגש כבלים!', '#ffbf2e');
+      const [en, he] = { jack: ['RIDE  ▶  PALLET JACK', 'קופצים על עגלת משטחים!'], tray: ['SLIDE  ▶  CABLE TRAY', 'גולשים במגש כבלים!'], zip: ['ZIP LINE  ▶  GRAB THE CABLE', 'תופסים את הכבל וטסים!'] }[type];
+      const t = TX.signTexture(en, he, '#ffbf2e');
       this.rideSigns[type] = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: .9, side: THREE.DoubleSide });
     }
     return this.rideSigns[type];
@@ -306,6 +317,80 @@ function buildObstacleKit(A) {
   return kit;
 }
 
+// rack door + server, zip-line gear, FM-200 nozzle
+function buildExtraKit(A) {
+  const kit = A.obstacleKit;
+  const steel = new THREE.MeshStandardMaterial({ color: 0x9aa1aa, metalness: .85, roughness: .3 });
+  // built for the rack on the right of the aisle (face at x = 0, aisle towards -x); mirrored for the left
+  {
+    const g = new THREE.Group();
+    const front = A.rackFront('hall', 1)[4];
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1b1d21, metalness: .6, roughness: .45 });
+    const pivot = new THREE.Group(); pivot.name = 'door'; pivot.position.set(-.03, 0, -.3);
+    const panelGeo = new THREE.BoxGeometry(.035, RACK.h, RACK.w); panelGeo.translate(0, RACK.h / 2 + .02, RACK.w / 2);
+    const panel = new THREE.Mesh(panelGeo, [front, front, dark, dark, dark, dark]);
+    pivot.add(panel);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(.05, .3, .03), steel); handle.position.set(-.04, 1.1, RACK.w - .06); pivot.add(handle);
+    g.add(pivot);
+    // 2U server on extended rails
+    const srv = new THREE.Group(); srv.name = 'server'; srv.position.set(.55, 1.08, 0);
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.0, .09, .48), new THREE.MeshStandardMaterial({ color: 0x2a2e34, metalness: .7, roughness: .35 }));
+    srv.add(chassis);
+    const bezel = new THREE.Mesh(new THREE.PlaneGeometry(.48, .085), new THREE.MeshStandardMaterial({ color: 0x0b0b0c, emissive: 0x3aa0ff, emissiveIntensity: .8, roughness: .3 }));
+    bezel.rotation.y = -Math.PI / 2; bezel.position.x = -.501; srv.add(bezel);
+    for (const z of [-.26, .26]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(2.0, .04, .02), steel); rail.position.set(.5, 0, z); srv.add(rail); }
+    const tag = new THREE.Mesh(new THREE.BoxGeometry(.02, .06, .2), A.hazard); tag.position.set(-.51, .07, 0); srv.add(tag);
+    // flashing amber service light so it reads at a glance
+    const amber = new THREE.Mesh(new THREE.BoxGeometry(.04, .04, .44), new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffa31a, emissiveIntensity: 4 })); amber.position.set(-.52, -.03, 0); srv.add(amber);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: A.glow, color: 0xffa31a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); glow.scale.setScalar(1.1); glow.position.set(-.6, 0, 0); srv.add(glow);
+    g.add(srv);
+    kit.door = g;
+  }
+  // hanging gear on the zip line: a fibre spool on a chain
+  {
+    const g = new THREE.Group();
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(.55, .55, .5, 20), new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: .85 }));
+    drum.rotation.z = Math.PI / 2; drum.position.y = ZIP_H - .9; g.add(drum);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(.4, .4, .52, 20), A.duct(0xf2c200)); core.rotation.z = Math.PI / 2; core.position.y = ZIP_H - .9; g.add(core);
+    const chain = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, 6, 6), steel); chain.position.y = ZIP_H - .35 + 3; g.add(chain);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(.52, .12, 1.12), A.hazard); stripe.position.y = ZIP_H - .9; g.add(stripe);
+    kit.zipBlock = g;
+  }
+  // trolley that runs on the cable + T-handle the runner hangs from
+  {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(.16, .14, .34), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: .45, metalness: .3 })); body.position.y = .02; g.add(body);
+    for (const z of [-.1, .1]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .05, 14), steel); w.rotation.z = Math.PI / 2; w.position.set(0, .05, z); g.add(w); }
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, .4, 6), steel); rod.position.y = -.2; g.add(rod);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, .5, 8), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .6 })); bar.rotation.z = Math.PI / 2; bar.position.y = -.4; g.add(bar);
+    g.scale.setScalar(1.6);
+    kit.trolley = g;
+  }
+  // start platform with steps
+  {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: .55, metalness: .2 });
+    for (let i = 0; i < 4; i++) { const st = new THREE.Mesh(new THREE.BoxGeometry(AISLE - .4, .2, 1.2), i === 3 ? A.hazard : mat); st.position.set(0, .1 + i * .2, -i * 1.2); g.add(st); }
+    kit.zipPlatform = g;
+  }
+  // FM-200 discharge nozzle on the ceiling
+  {
+    const g = new THREE.Group();
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .5, 8), new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: .5 })); pipe.position.y = -.25; g.add(pipe);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.08, 12, 8), steel); head.position.y = -.52; g.add(head);
+    kit.nozzle = g;
+  }
+  A.zipCable = steel;
+  A.zipBeam = new THREE.MeshStandardMaterial({ color: 0x3b4048, metalness: .6, roughness: .4 });
+  A.eventSigns = {};
+  A.eventSign = type => A.eventSigns[type] ||= (() => {
+    const [en, he, col] = { blackout: ['POWER FAILURE', 'הפסקת חשמל — רצים עם פנס!', '#ff4a3a'], fm200: ['FM-200 DISCHARGE', 'שחרור גז כיבוי! ראות נמוכה', '#ff4a3a'], tiles: ['FLOOR TILES REMOVED', 'אריחי רצפה חסרים — קופצים!', '#ffbf2e'] }[type];
+    const t = TX.signTexture(en, he, col);
+    return new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: .9, side: THREE.DoubleSide });
+  })();
+  for (const k of ['door', 'zipBlock', 'trolley', 'zipPlatform']) kit[k].traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+}
+
 function g_shadowify(kit) {
   for (const k of Object.values(kit)) if (k.isObject3D) k.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 }
@@ -364,7 +449,7 @@ export class Track {
     this.queue = [];
   }
 
-  reset(random = Math.random) {
+  reset(random = Math.random, tutorial = false) {
     for (const s of this.segments) this.disposeSegment(s);
     for (const j of this.queue) j.seg.disposed = true;
     this.queue.length = 0;
@@ -374,8 +459,11 @@ export class Track {
     this.turnCount = 0;
     const firstTheme = this.firstTheme || 'hall';
     this.seen = new Set([firstTheme]);
-    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: Math.max(110, worldLength(0, this.random)), turns: this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
-    this.populate(first, 0);
+    const first = new Segment({ origin: new THREE.Vector3(), dir: 0, length: tutorial ? 150 : Math.max(110, worldLength(0, this.random)), turns: tutorial ? { left: true, right: true } : this.pickTurns(), theme: firstTheme, first: true, distanceAtStart: 0, seed: 1 });
+    // debug: ?ride=zip / ?event=blackout force one on the first aisle
+    if (this.debugRide && !tutorial) first.ride = { type: this.debugRide, from: 50, to: Math.min(first.length - 30, 110) };
+    else if (this.debugEvent && !tutorial) first.event = { type: this.debugEvent, from: 50, to: Math.min(first.length - 30, 110) };
+    if (tutorial) this.populateTutorial(first); else this.populate(first, 0);
     this.immediate = true;
     this.build(first);
     this.ensureChildren(first);
@@ -389,7 +477,8 @@ export class Track {
     const temps = [];
     for (const theme of THEME_ORDER) {
       const seg = new Segment({ origin: new THREE.Vector3(0, -500, 0), dir: 0, length: 70, turns: { left: true, right: false }, theme, distanceAtStart: 600, seed: 7 });
-      seg.ride = { type: temps.length % 2 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 30 };
+      seg.ride = { type: ZIP_THEMES.has(theme) ? 'zip' : temps.length % 2 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 30 };
+      if (THEMES[theme].kind === 'racks') seg.event = { type: 'tiles', from: HALF + 34, to: 66 };
       this.populate(seg, 600); this.build(seg); temps.push(seg);
     }
     const textures = new Set();
@@ -422,7 +511,17 @@ export class Track {
       // sometimes a world opens with a ride: a red pallet jack or a cable-tray slide
       if (this.random() < .4) {
         const len = Math.min(child.length - 50, runSpeedAt(dist) * 1.35 * (7 + this.random() * 4));
-        if (len > 45) child.ride = { type: this.random() < .5 ? 'jack' : 'tray', from: HALF + 10, to: HALF + 10 + len };
+        const type = ZIP_THEMES.has(theme) && this.random() < .7 ? 'zip' : this.random() < .5 ? 'jack' : 'tray';
+        if (len > 45) child.ride = { type, from: HALF + 10, to: HALF + 10 + len };
+      }
+      // or a special event somewhere along the aisle
+      if (!child.ride && dist > 250 && this.random() < .4) {
+        const kinds = Object.keys(EVENTS).filter(k => EVENTS[k](theme)).flatMap(k => k === 'blackout' ? [k] : [k, k]);
+        if (kinds.length) {
+          const type = kinds[this.random() * kinds.length | 0];
+          const from = HALF + 18, to = Math.min(child.length - 32, from + 45 + this.random() * 30);
+          if (to - from > 30) child.event = { type, from, to };
+        }
       }
       this.populate(child, dist);
       if (this.immediate) this.build(child); else this.queueBuild(child);
@@ -476,10 +575,27 @@ export class Track {
       else kind = 'dodge';
       const inRide = seg.ride && u > seg.ride.from - 4 && u < seg.ride.to + 6;
       if (inRide) kind = 'dodge';
+      const E = seg.event;
+      // the missing-tiles gauntlet replaces the normal obstacles (added after the loop)
+      if (E && E.type === 'tiles' && u > E.from - 8 && u < E.to + 8) { u = E.to + 10; continue; }
       let free = [0, 1, 2];
-      if (kind === 'jump') { const jt = room === 'storeroom' && r() < .4 ? 'woodLadder' : set.jump; push({ type: jt, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true }); }
+      const zip = inRide && seg.ride.type === 'zip';
+      if (zip) {
+        // gear hanging from the ceiling in one or two lanes of the zip line
+        const count = r() < .3 + diff * .3 ? 2 : 1;
+        const lanes = [0, 1, 2].sort(() => r() - .5).slice(0, count);
+        free = [0, 1, 2].filter(l => !lanes.includes(l));
+        if (u > seg.ride.from + 8 && u < seg.ride.to - 4) for (const l of lanes) push({ type: 'zipBlock', u, len: .8, lanes: [l], need: 'dodge', zip: true });
+      }
+      else if (kind === 'jump') { const jt = room === 'storeroom' && r() < .4 ? 'woodLadder' : set.jump; push({ type: jt, u, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true }); }
       else if (kind === 'slide') push({ type: set.slide, u, len: set.slide === 'duct' ? 1 : .7, lanes: [0, 1, 2], need: 'slide' });
       else if (kind === 'pit') push({ type: 'pit', u, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
+      else if (room === 'racks' && !inRide && r() < .22) {
+        // a rack door swings open and a server slides out on its rails as you approach
+        const side = r() < .5 ? -1 : 1, l = side < 0 ? 0 : 2;
+        push({ type: 'door', u, len: .9, lanes: [l], need: 'dodge', x: side * 2.25, halfW: .95, slideOk: true, side, open: 0, swing: { trigger: 24, speed: 2.4 } });
+        free = [0, 1, 2].filter(x => x !== l);
+      }
       else if (room === 'warehouse' && !inRide && r() < .35) {
         // a forklift drives across the aisle as you approach
         const fromLeft = r() < .5, sx = fromLeft ? -HALF - 2.2 : HALF + 2.2, tx = fromLeft ? HALF + 2.6 : -HALF - 2.6;
@@ -510,14 +626,26 @@ export class Track {
       for (let i = 0; i < n; i++) {
         const cu = u - 3 - (n - i) * 1.6;
         if (cu < seg.startU + 4) continue;
-        seg.chips.push({ u: cu, x: LANES[chipLane], y: .7, taken: false });
+        seg.chips.push({ u: cu, x: LANES[chipLane], y: zip && cu > seg.ride.from + 2 ? 1.55 + .9 : .7, taken: false });
       }
       if (kind === 'cable' || kind === 'pit') {
         // arc of chips over the jump
         for (let i = -2; i <= 2; i++) seg.chips.push({ u: u + i * 1.5, x: LANES[chipLane], y: .8 + (1 - (i * i) / 4) * .75, taken: false });
       }
       if (r() < .3) chipLane = Math.max(0, Math.min(2, chipLane + (r() < .5 ? -1 : 1)));
-      u += 24 - diff * 9 + r() * 10;
+      u += 24 - diff * 9 + r() * 10 + (E && E.type === 'blackout' && u > E.from && u < E.to ? 7 : 0);
+    }
+    // missing floor tiles one after another: jump, land, jump again
+    if (seg.event?.type === 'tiles') {
+      const E = seg.event, speed = runSpeedAt(distance + E.from);
+      const gap = speed * .95 + 3.5;
+      let lane = r() * 3 | 0;
+      for (let pu = E.from + 6; pu < E.to - 4; pu += gap * (1 + r() * .25)) {
+        push({ type: 'pit', u: pu, len: 1.8, lanes: [0, 1, 2], need: 'jump', clear: .01 });
+        for (let i = -2; i <= 2; i++) seg.chips.push({ u: pu + i * 1.5, x: LANES[lane], y: .8 + (1 - (i * i) / 4) * .75, taken: false });
+        if (r() < .4) lane = Math.max(0, Math.min(2, lane + (r() < .5 ? -1 : 1)));
+      }
+      seg.obstacles.sort((a, b) => a.u - b.u);
     }
     // power-up roughly every other segment
     if (!seg.first && r() < .6) {
@@ -526,6 +654,19 @@ export class Track {
       if (clearSpot) seg.powerups.push({ u: pu, x: LANES[r() * 3 | 0], y: 1.0, taken: false });
     }
     // chips that lead into the junction hint at the turn
+    for (let i = 0; i < 6; i++) seg.chips.push({ u: seg.length - 20 + i * 2, x: 0, y: .7, taken: false });
+  }
+
+  // the first-run lesson: one of each move, spaced out, then a junction
+  populateTutorial(seg) {
+    const lane = l => LANES[l];
+    seg.obstacles.push({ type: 'cable', u: 46, len: .7, lanes: [0, 1, 2], need: 'jump', clear: .42, stumble: true });
+    seg.obstacles.push({ type: 'bar', u: 78, len: .7, lanes: [0, 1, 2], need: 'slide' });
+    seg.obstacles.push({ type: 'boxes', u: 110, len: 1.1, lanes: [1], need: 'dodge' });
+    for (let i = 0; i < 8; i++) seg.chips.push({ u: 18 + i * 2.2, x: 0, y: .7, taken: false });
+    for (let i = -2; i <= 2; i++) seg.chips.push({ u: 46 + i * 1.5, x: 0, y: .8 + (1 - (i * i) / 4) * .75, taken: false });
+    for (let i = 0; i < 6; i++) seg.chips.push({ u: 84 + i * 2, x: 0, y: .7, taken: false });
+    for (let i = 0; i < 6; i++) seg.chips.push({ u: 100 + i * 2.2, x: lane(2), y: .7, taken: false });
     for (let i = 0; i < 6; i++) seg.chips.push({ u: seg.length - 20 + i * 2, x: 0, y: .7, taken: false });
   }
 
@@ -717,7 +858,21 @@ export class Track {
     }
 
     // parked ride vehicle waiting at the start of the ride section
-    if (seg.ride) {
+    if (seg.ride?.type === 'zip') {
+      // three steel cables, one over each lane, between two gantry beams
+      const R = seg.ride, a = R.from - 3, b = R.to + 3, len = b - a;
+      for (const x of LANES) {
+        const c = own(new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, len, 8), A.zipCable)); c.rotation.x = Math.PI / 2; c.position.set(x, ZIP_H, -(a + len / 2)); g.add(c);
+      }
+      for (const u of [a, b]) {
+        const beam = own(new THREE.Mesh(new THREE.BoxGeometry(AISLE + .4, .3, .3), A.zipBeam)); beam.position.set(0, ZIP_H + .2, -u); g.add(beam);
+        for (const x of [-HALF - .1, HALF + .1]) { const post = own(new THREE.Mesh(new THREE.BoxGeometry(.25, ZIP_H + .35, .25), A.zipBeam)); post.position.set(x, (ZIP_H + .35) / 2, -u); g.add(post); }
+      }
+      // steps up to the start platform
+      const plat = A.obstacleKit.zipPlatform.clone(); plat.position.set(0, 0, -(R.from - 6)); g.add(plat);
+      const m = A.obstacleKit.trolley.clone(); m.position.set(0, ZIP_H, -(R.from + .3)); seg.rideMesh = m; g.add(m);
+      const sign = own(new THREE.Mesh(new THREE.PlaneGeometry(3.2, .6), A.rideSign('zip'))); sign.position.set(0, ZIP_H + .9, -(R.from - 3.2)); g.add(sign);
+    } else if (seg.ride) {
       const m = (seg.ride.type === 'jack' ? A.obstacleKit.jack : A.obstacleKit.sled).clone();
       m.position.set(0, 0, -(seg.ride.from + .6)); seg.rideMesh = m; g.add(m);
       const sign = own(new THREE.Mesh(new THREE.PlaneGeometry(3.2, .6), A.rideSign(seg.ride.type))); sign.position.set(0, 2.6, -(seg.ride.from - 2)); g.add(sign);
@@ -733,9 +888,20 @@ export class Track {
       else mesh = A.obstacleKit[o.type].clone();
       const x = o.x ?? (o.lanes.length === 3 ? 0 : LANES[o.lanes[0]]);
       mesh.position.set(x, 0, -o.u);
+      if (o.type === 'door') { mesh.position.x = o.side * HALF; mesh.scale.x = o.side; }
       if (o.rotY !== undefined) mesh.rotation.y = o.rotY;
-      else if (o.lanes.length === 1) mesh.rotation.y = (r() - .5) * .5;
+      else if (o.lanes.length === 1 && o.type !== 'door' && o.type !== 'zipBlock') mesh.rotation.y = (r() - .5) * .5;
       o.mesh = mesh; g.add(mesh);
+    }
+
+    // warning sign before an event
+    if (seg.event) {
+      const sign = own(new THREE.Mesh(new THREE.PlaneGeometry(3.2, .6), A.eventSign(seg.event.type)));
+      sign.position.set(0, 2.75, -(seg.event.from - 4)); g.add(sign);
+      // ceiling nozzles that release the FM-200 gas
+      if (seg.event.type === 'fm200') for (let u = seg.event.from; u < seg.event.to; u += 9) {
+        const n = A.obstacleKit.nozzle.clone(); n.position.set(0, CEILING, -u); g.add(n);
+      }
     }
 
     yield;

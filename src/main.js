@@ -10,6 +10,8 @@ import { CHARACTERS, getCharacter, HOST_LINES } from './characters.js';
 import FRAMES from './frames.json';
 import { Wallet, UPGRADES, UNLOCK_COST, dailySeed, mulberry32 } from './economy.js';
 import { Music } from './music.js';
+import { Haptic } from './haptics.js';
+import { Leaderboard } from './leaderboard.js';
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -37,12 +39,16 @@ async function boot() {
   const run = new Run(track);
   const themeParam = new URLSearchParams(location.search).get('room');
   if (themeParam) track.firstTheme = themeParam;
+  const qs = new URLSearchParams(location.search);
+  track.debugRide = qs.get('ride'); track.debugEvent = qs.get('event');
   const player = new PlayerView(view.scene, assets);
   const ui3d = new UI3D(view.scene);
   const audio = new GameAudio();
   const hanan = new HananView(view.scene, assets);
   const wallet = new Wallet(store);
   const music = new Music(audio);
+  const haptic = new Haptic(store);
+  const board = new Leaderboard(store);
   let daily = false;
   let character = getCharacter(store.get('character', 'technician'));
   loadingText.textContent = 'מעירים את הצוות…'; $('loadFill').style.width = '75%';
@@ -160,6 +166,36 @@ async function boot() {
     const v = wallet.balance.toLocaleString('he-IL');
     $('walletStart').textContent = v; $('walletShop').textContent = v; refreshLocks();
   }
+  // online leaderboard
+  let boardDaily = false;
+  async function renderBoard() {
+    $('boardAll').classList.toggle('on', !boardDaily); $('boardDaily').classList.toggle('on', boardDaily);
+    $('boardName').value = board.name;
+    const list = $('boardList'); list.innerHTML = '<li class="muted">טוען…</li>';
+    try {
+      const rows = await board.top(boardDaily);
+      list.innerHTML = '';
+      if (!rows.length) list.innerHTML = '<li class="muted">עוד אין תוצאות — תהיו הראשונים!</li>';
+      rows.forEach((r, i) => {
+        const li = document.createElement('li'); if (r.id === board.id) li.className = 'me';
+        const ch = CHARACTERS.find(c => c.id === r.character);
+        li.innerHTML = `<b>${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</b><span></span><em>${r.score.toLocaleString('he-IL')}</em>`;
+        li.querySelector('span').textContent = r.name + (ch ? ` · ${ch.name}` : '');
+        list.append(li);
+      });
+    } catch { list.innerHTML = '<li class="muted">אין חיבור לטבלה כרגע</li>'; }
+    $('boardNote').textContent = board.name ? '' : 'בחרו שם כדי שהתוצאות שלכם יופיעו בטבלה.';
+  }
+  $('boardBtn').hidden = !board.enabled;
+  $('boardBtn').onclick = () => { renderBoard(); $('boardDialog').showModal(); };
+  $('boardAll').onclick = () => { boardDaily = false; renderBoard(); };
+  $('boardDaily').onclick = () => { boardDaily = true; renderBoard(); };
+  $('boardSave').onclick = async () => {
+    const n = $('boardName').value.trim(); if (!n) return;
+    await board.rename(n, character.id);
+    if (!board.store.get('posted.scores', 0)) await board.submit({ score: store.get('bestScore', 0), character: character.id });
+    toast('נשמר ✓', 900); renderBoard();
+  };
   $('shopBtn').onclick = () => { renderShop(); $('shopDialog').showModal(); };
   const todayKey = 'daily.' + dailySeed();
   function refreshDaily() { const b = store.get(todayKey, 0); $('dailyBest').textContent = b ? `השיא היום: ${b.toLocaleString('he-IL')}` : 'מסלול חדש כל יום · QSFP כפול'; }
@@ -189,6 +225,9 @@ async function boot() {
   $('musicToggle').onclick = () => { audio.unlock(); audio.setMusic(!audio.musicOn); syncAudioButtons(); };
   $('sfxToggle').onclick = () => { audio.unlock(); audio.setSfx(!audio.sfxOn); syncAudioButtons(); };
   syncAudioButtons();
+  $('hapticsSetting').checked = haptic.on;
+  $('hapticsSetting').onchange = e => haptic.set(e.target.checked);
+  $('replayTutorial').onclick = () => { store.set('tutorialDone', false); $('settingsDialog').close(); toast('המדריך יופעל בריצה הבאה', 1400); };
   function syncTouch() { $('touchControls').hidden = !(settings.touch && (run.mode === 'running' || run.mode === 'countdown')); }
 
   /* ---------------- flow ---------------- */
@@ -196,10 +235,12 @@ async function boot() {
   function startRun(isDaily = false) {
     clearTimeout(overTimer);
     daily = isDaily === true;
+    const tutorial = !daily && !store.get('tutorialDone', false);
+    $('tutorial').hidden = true;
     audio.unlock(); audio.playMusic(true); audio.voice('hanan-start.mp3');
     ['start', 'over', 'paused'].forEach(id => $(id).hidden = true);
     $('hud').hidden = false; $('pauseBtn').hidden = false;
-    run.reset(character, { bonus: wallet.runBonuses(), daily, random: daily ? mulberry32(dailySeed()) : undefined });
+    run.reset(character, { bonus: wallet.runBonuses(), daily, tutorial, random: daily ? mulberry32(dailySeed()) : undefined });
     player.setCharacter(character);
     music.setWorld(run.seg.theme === 'hall' ? null : run.seg.theme);
     if (daily) toast('אתגר יומי — אותו מסלול לכולם היום', 1600);
@@ -225,7 +266,7 @@ async function boot() {
   function goHome() {
     clearTimeout(overTimer);
     clearInterval(countdownTimer);
-    ['over', 'paused', 'hud', 'countdown', 'powerBar', 'danger', 'turnCue'].forEach(id => $(id).hidden = true);
+    ['over', 'paused', 'hud', 'countdown', 'powerBar', 'danger', 'turnCue', 'tutorial'].forEach(id => $(id).hidden = true);
     $('pauseBtn').hidden = true; $('start').hidden = false;
     run.reset(character, { bonus: wallet.runBonuses() }); run.mode = 'ready'; refreshBest(); syncTouch(); music.setWorld(null);
   }
@@ -248,6 +289,7 @@ async function boot() {
     if (earned > 0) wallet.add(earned);
     $('earned').textContent = earned > 0 ? `+${earned.toLocaleString('he-IL')} 💠 QSFP לארנק${run.daily ? ' (כפול באתגר היומי)' : ''} · בארנק: ${wallet.balance.toLocaleString('he-IL')}` : `בארנק: ${wallet.balance.toLocaleString('he-IL')} QSFP`;
     if (run.daily && score > store.get(todayKey, 0)) store.set(todayKey, score);
+    board.submit({ score, character: character.id, daily: run.daily }).then(ok => { if (ok) $('hostResult').textContent += ' · 🏆 עודכן בטבלת השיאים'; });
     refreshWallet(); refreshDaily();
     $('revive').hidden = run.revives <= 0;
     const cost = 75 * Math.pow(2, run.paidRevives);
@@ -255,7 +297,7 @@ async function boot() {
     $('reviveBuy').disabled = wallet.balance < cost;
     $('reviveBuy').textContent = `🤝 חנן עוזר שוב — ${cost.toLocaleString('he-IL')} 💠 QSFP`;
     $('over').hidden = false; $('pauseBtn').hidden = true;
-    ['powerBar', 'danger', 'turnCue'].forEach(id => $(id).hidden = true);
+    ['powerBar', 'danger', 'turnCue', 'tutorial'].forEach(id => $(id).hidden = true);
     syncTouch();
   }
   $('play').onclick = () => startRun(false);
@@ -322,14 +364,17 @@ async function boot() {
     run.update(dt);
     track.pump(run.mode === 'running' ? 3 : 8);
     for (const ev of run.events) {
-      audio.play(ev);
+      audio.play(ev); haptic.play(ev);
       if (ev.type === 'power') { toast(ev.name, 1800); $('powerName').textContent = character.power.name; $('powerBar').hidden = false; }
       else if (ev.type === 'powerEnd') $('powerBar').hidden = true;
-      else if (ev.type === 'stumble') { toast('מעידה!', 700); audio.hananSay('careful', 'תיזהר!'); if (navigator.vibrate) navigator.vibrate(40); }
+      else if (ev.type === 'stumble') { toast('מעידה!', 700); audio.hananSay('careful', 'תיזהר!'); }
       else if (ev.type === 'room') { showRoom(ev.name); music.setWorld(ev.theme === 'hall' ? null : ev.theme); }
-      else if (ev.type === 'rideStart') toast(ev.kind === 'jack' ? 'על העגלה! החליקו לצדדים 🛒' : 'גלישה במגש הכבלים! 🟨', 1600);
+      else if (ev.type === 'rideStart') toast({ jack: 'על העגלה! החליקו לצדדים 🛒', tray: 'גלישה במגש הכבלים! 🟨', zip: 'תופסים את הכבל! החליקו לצדדים 🪢' }[ev.kind], 1600);
+      else if (ev.type === 'event') toast({ blackout: '⚡ הפסקת חשמל! רצים עם פנס', fm200: '🚨 שחרור גז FM-200! ראות נמוכה', tiles: '⚠️ אריחים חסרים — קופצים!' }[ev.kind], 1800);
+      else if (ev.type === 'tutorial') { const tu = $('tutorial'); tu.dataset.dir = ev.step.dir; $('tutText').textContent = ev.step.text; tu.hidden = false; }
+      else if (ev.type === 'tutorialStep') { $('tutorial').hidden = true; if (ev.done) { store.set('tutorialDone', true); toast('מעולה! עכשיו זה רק אתה והדאטה סנטר 💪', 2200); } }
       else if (ev.type === 'rideEnd') toast('קפיצה מהרכב!', 800);
-      else if (ev.type === 'crash') { clearTimeout(overTimer); helpSpoken = false; overTimer = setTimeout(gameOver, 4500); if (navigator.vibrate) navigator.vibrate([60, 40, 120]); }
+      else if (ev.type === 'crash') { clearTimeout(overTimer); helpSpoken = false; overTimer = setTimeout(gameOver, 4500); $('tutorial').hidden = true; }
       else if (ev.type === 'chip' && ev.combo && ev.combo % 10 === 0) toast(`רצף ×${1 + Math.min(4, ev.combo / 10)}`, 900);
     }
     run.events.length = 0;
@@ -343,7 +388,7 @@ async function boot() {
       if (run.powerRemaining > 0) $('powerFill').style.width = (run.powerRemaining / (run.powerTotal || character.power.duration) * 100) + '%';
       $('danger').hidden = !(run.mode === 'running' && run.chaserHeat > .45 && run.time > 3);
       const hint = run.mode === 'running' && run.turnHint();
-      $('turnCue').hidden = !hint;
+      $('turnCue').hidden = !hint || !$('tutorial').hidden;
       if (hint) {
         const L = $('cueLeft'), R = $('cueRight');
         L.className = 'arrow left ' + (!hint.left ? 'off' : hint.queued === 'left' ? 'chosen' : hint.inWindow ? 'on' : '');
@@ -352,6 +397,10 @@ async function boot() {
       }
     }
     audio.setDanger(run.mode === 'running' ? run.chaserHeat : 0);
+    // events: lamps die in a blackout, sirens wail during the gas release
+    const dark = run.eventKind === 'blackout' ? run.eventK : 0;
+    if (Math.abs(dark - (assets.darkNow ?? 0)) > .005) { assets.darkNow = dark; for (const m of Object.values(assets.fixtureMats)) m.emissiveIntensity = 7 * Math.max(0, 1 - dark * 1.05); }
+    audio.setSiren(run.mode === 'running' && run.eventKind === 'fm200' ? run.eventK : 0);
     audio.updatePower(run.giant && run.mode === 'running');
 
     // world animation

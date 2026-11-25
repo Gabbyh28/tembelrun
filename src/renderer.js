@@ -61,6 +61,24 @@ export class View {
     // the outage: red rolling light behind the runner
     this.outage = new THREE.PointLight(0xff2a14, 0, 14, 2);
     this.scene.add(this.outage);
+    // events: head torch for the blackout, rotating red beacon for alarms
+    this.torch = new THREE.SpotLight(0xfff2dd, 0, 34, .5, .45, 1.4);
+    this.scene.add(this.torch, this.torch.target);
+    this.beacon = new THREE.PointLight(0xff2010, 0, 18, 2);
+    this.scene.add(this.beacon);
+    // FM-200 discharge: soft white clouds pouring out of the ceiling
+    {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const x = c.getContext('2d'), grd = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(255,255,255,.9)'); grd.addColorStop(.5, 'rgba(255,255,255,.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = grd; x.fillRect(0, 0, 64, 64);
+      const map = new THREE.CanvasTexture(c);
+      this.gas = [];
+      for (let i = 0; i < 26; i++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map, color: 0xe6ebf0, transparent: true, opacity: 0, depthWrite: false }));
+        sp.visible = false; sp.userData = { life: 0 }; this.scene.add(sp); this.gas.push(sp);
+      }
+    }
 
     // airborne dust catching the light: world-anchored, wrapped in a box around the runner
     {
@@ -190,8 +208,9 @@ export class View {
     const p = run.world;
     const sliding = run.sliding ? 1 : 0;
     const back = run.giant ? 8.2 : 5.4, up = run.giant ? 3.3 : 2.85 - sliding * .35;
-    // rise with the jump so the runner never hides the aisle ahead
-    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .4, p.z - fwd.z * back);
+    // rise with the jump so the runner never hides the aisle ahead (and with the zip line)
+    this.zipMix = THREE.MathUtils.damp(this.zipMix || 0, run.riding === 'zip' ? 1 : 0, 3, dt);
+    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * (.4 - .1 * this.zipMix), p.z - fwd.z * back);
     if (run.mode === 'over') {
       // pull back and look down at the scene
       desired.set(p.x - fwd.x * (back + 2.2), up + 1.4, p.z - fwd.z * (back + 2.2));
@@ -206,7 +225,7 @@ export class View {
       this.camera.position.x += (Math.random() - .5) * s; this.camera.position.y += (Math.random() - .5) * s;
     }
     const ahead = run.giant ? 13 : 8;
-    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * .15, p.z + fwd.z * ahead);
+    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * (.15 + .4 * this.zipMix), p.z + fwd.z * ahead);
     this.camera.lookAt(this.lookAt);
     // lean slightly into lane changes / turns
     this.camera.rotateZ(THREE.MathUtils.clamp(-run.lateralVel * .006, -.05, .05));
@@ -221,9 +240,10 @@ export class View {
     this.key.color.setRGB(1, 1 - .06 * this.sunMix, 1 - .16 * this.sunMix);
     this.hemi.intensity = THREE.MathUtils.lerp(.22, .55, this.sunMix);
     this.hemi.color.setHex(this.sunMix > .5 ? 0xe4efff : 0xbcd2ff);
-    this.scene.environmentIntensity = THREE.MathUtils.lerp(this.scene.environmentIntensity, Tk.env ?? .32, .05);
+    this.scene.environmentIntensity = THREE.MathUtils.lerp(this.scene.environmentIntensity, (Tk.env ?? .32) * (run.eventKind === 'blackout' ? 1 - (run.eventK || 0) * .75 : 1), .05);
     this.key.target.position.set(p.x - fwd.x * -2, 0, p.z - fwd.z * -2);
     this.placeLights(run);
+    this.updateEvent(run, dt, t, p, fwd);
 
     // outage glow behind the runner
     const heat = run.chaserHeat || 0;
@@ -232,10 +252,13 @@ export class View {
 
     // theme fog
     const T = THEMES[run.seg.theme];
+    const ek = run.eventK || 0, gas = run.eventKind === 'fm200' ? ek : 0, dark = run.eventKind === 'blackout' ? ek : 0;
     this.fogColor.setHex(run.prayer ? 0x9aa6b2 : T.fog);
+    if (gas) this.fogColor.lerp(this.gasColor ||= new THREE.Color(0x8d959c), gas);
+    if (dark) this.fogColor.multiplyScalar(1 - dark * .85);
     this.scene.fog.color.lerp(this.fogColor, 1 - Math.exp(-dt * 1.5));
     this.scene.background.copy(this.scene.fog.color);
-    this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, run.prayer ? .012 : (T.fogDensity ?? .022), .05);
+    this.scene.fog.density = THREE.MathUtils.lerp(this.scene.fog.density, (run.prayer ? .012 : (T.fogDensity ?? .022)) + gas * .022, .05);
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(this.renderer.toneMappingExposure, run.prayer ? 1.5 : (Tk.exposure ?? .95), .05);
 
     // drift dust (strong airflow in the plenum)
@@ -255,6 +278,45 @@ export class View {
     this.film.uniforms.uTime.value = t;
     const danger = THREE.MathUtils.smoothstep(heat, .45, 1);
     this.film.uniforms.uDanger.value = THREE.MathUtils.lerp(this.film.uniforms.uDanger.value, danger * (run.mode === 'running' || run.mode === 'over' ? 1 : 0), .1);
+  }
+
+  // blackout: lights die, the runner's head torch comes on, red beacons spin;
+  // FM-200: sirens, strobes and gas pouring from the ceiling
+  updateEvent(run, dt, t, p, fwd) {
+    const k = run.eventK || 0, kind = run.eventKind;
+    const dark = kind === 'blackout' ? k : 0, gas = kind === 'fm200' ? k : 0;
+    if (dark > 0) {
+      for (const l of this.pool) l.intensity *= 1 - dark * .93;
+      this.hemi.intensity *= 1 - dark * .8;
+      this.key.intensity *= 1 - dark * .85;
+    }
+    this.darkness = dark;
+    // head torch from just above the runner's head, aimed down the aisle
+    this.torch.intensity = dark * 140;
+    this.torch.position.set(p.x - fwd.x * .6, 2.1 + run.y, p.z - fwd.z * .6);
+    this.torch.target.position.set(p.x + fwd.x * 14, .3 + run.y * .5, p.z + fwd.z * 14);
+    // beacon rides ahead of the runner and flashes
+    const alarm = Math.max(dark, gas);
+    this.beacon.position.set(p.x + fwd.x * 9 + Math.cos(t * 6) * 1.5, 3.3, p.z + fwd.z * 9 + Math.sin(t * 6) * 1.5);
+    this.beacon.intensity = alarm * (Math.sin(t * 9) > 0 ? 14 : 2);
+    // gas clouds
+    for (const sp of this.gas) {
+      const d = sp.userData;
+      if (d.life <= 0) {
+        if (gas > .2 && Math.random() < dt * 14) {
+          const side = (Math.random() - .5) * 6;
+          d.life = d.total = 2.2 + Math.random();
+          const ah = 11 + Math.random() * 16;
+          sp.position.set(p.x + fwd.x * ah + fwd.z * side, 4.2, p.z + fwd.z * ah - fwd.x * side);
+          d.vy = -1.2 - Math.random(); sp.visible = true;
+        } else { sp.visible = false; continue; }
+      }
+      d.life -= dt;
+      const a = 1 - d.life / d.total;
+      sp.position.y = Math.max(.6, sp.position.y + d.vy * dt);
+      sp.scale.setScalar(1.2 + a * 4.5);
+      sp.material.opacity = .32 * Math.sin(Math.PI * Math.min(1, a)) * Math.max(gas, .3);
+    }
   }
 
   render() {

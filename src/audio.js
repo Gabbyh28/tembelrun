@@ -90,6 +90,13 @@ export class GameAudio {
     const alf = ctx.createBiquadFilter(); alf.type = 'lowpass'; alf.frequency.value = 400;
     this.alarm = ctx.createGain(); this.alarm.gain.value = 0;
     al.connect(alf).connect(this.alarm).connect(this.sfx); al.start();
+    // fire-suppression siren: a square wave swept by a slow LFO
+    const sir = ctx.createOscillator(); sir.type = 'square'; sir.frequency.value = 700;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = .9; const lg = ctx.createGain(); lg.gain.value = 260;
+    lfo.connect(lg).connect(sir.frequency);
+    const sf = ctx.createBiquadFilter(); sf.type = 'lowpass'; sf.frequency.value = 1800;
+    this.siren = ctx.createGain(); this.siren.gain.value = 0;
+    sir.connect(sf).connect(this.siren).connect(this.sfx); sir.start(); lfo.start();
   }
 
   playMusic(on = true) {
@@ -110,6 +117,7 @@ export class GameAudio {
     a.play().catch(() => {});
   }
 
+  setSiren(x) { if (this.siren) this.siren.gain.setTargetAtTime(x * .035, this.ctx.currentTime, .2); }
   setDanger(x) { if (this.alarm) this.alarm.gain.setTargetAtTime(x * .07, this.ctx.currentTime, .1); }
 
   tone(freq, dur, type = 'sine', vol = .2, slide = 0, delay = 0) {
@@ -149,6 +157,15 @@ export class GameAudio {
       case 'room': this.tone(392, .5, 'sine', .07); this.tone(587, .6, 'sine', .06, 0, .12); break;
       case 'tick': this.tone(660, .12, 'square', .06); break;
       case 'go': this.tone(990, .3, 'square', .07); break;
+      case 'event':
+        if (ev.kind === 'blackout') { this.tone(220, 1.2, 'sawtooth', .12, -180); this.burst(.6, 120, .6, .3, 'lowpass'); }
+        else if (ev.kind === 'fm200') { this.burst(1.6, 2500, .4, .35, 'highpass', -1500); }
+        else [0, .18, .36].forEach(d => this.tone(1250, .1, 'square', .07, 0, d));
+        break;
+      case 'eventEnd': if (ev.kind === 'blackout') this.tone(140, .5, 'sine', .1, 400); break;
+      case 'doorOpen': this.burst(.35, 900, 3, .1, 'bandpass', -500); this.tone(160, .25, 'triangle', .05, 60, .15); break;
+      case 'tutorial': this.tone(784, .15, 'sine', .08); this.tone(1046, .2, 'sine', .07, 0, .1); break;
+      case 'tutorialStep': this.tone(1046, .12, 'triangle', .09); this.tone(1318, .18, 'triangle', .08, 0, .08); break;
       case 'record': [659, 784, 988, 1318].forEach((f, i) => this.tone(f, .35, 'triangle', .1, 0, i * .1)); break;
     }
   }

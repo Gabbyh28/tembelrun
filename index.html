@@ -45,6 +45,10 @@
   <div id="hananSpeech" hidden><strong>חנן</strong><span>תאסוף לי את ה־SFP בדרך!</span></div>
   <div id="radio" hidden><strong>חנן בקשר</strong><span id="radioText"></span></div>
   <div id="toast"></div>
+  <div id="tutorial" hidden>
+    <div class="tut-text" id="tutText"></div>
+    <div class="tut-pad"><div class="tut-trail"></div><div class="tut-hand">👆</div></div>
+  </div>
   <div id="countdown" hidden><strong id="countNum">3</strong></div>
 
   <div id="touchControls" hidden>
@@ -70,6 +74,7 @@
         <button id="dailyBtn" class="secondary daily">🗓 אתגר יומי<small id="dailyBest"></small></button>
         <button id="shopBtn" class="secondary shop">🛒 חנות<small><b id="walletStart">0</b> QSFP</small></button>
       </div>
+      <button id="boardBtn" class="secondary" hidden>🏆 טבלת שיאים</button>
       <button id="installBtn" class="secondary" hidden>📲 התקנה כאפליקציה במסך הבית</button>
       <div class="record">השיא שלך <strong id="bestStart">0</strong> נק׳ · <span id="bestDist">0</span> מ׳</div>
     </div>
@@ -116,6 +121,14 @@
     <div id="characterGrid"></div>
   </dialog>
 
+  <dialog id="boardDialog">
+    <div class="dialog-head"><h2>🏆 טבלת שיאים</h2><button class="icon" data-close>×</button></div>
+    <div class="board-tabs"><button id="boardAll" class="on">כל הזמנים</button><button id="boardDaily">האתגר היומי</button></div>
+    <label class="board-name">השם שלך בטבלה<input id="boardName" maxlength="16" placeholder="למשל: גבי"><button id="boardSave" class="buy">שמירה</button></label>
+    <ol id="boardList"></ol>
+    <small id="boardNote"></small>
+  </dialog>
+
   <dialog id="shopDialog">
     <div class="dialog-head"><h2>חנות</h2><span class="wallet">💠 <b id="walletShop">0</b> QSFP</span><button class="icon" data-close>×</button></div>
     <p class="shop-note">מודולי QSFP שאוספים בריצות נשמרים בארנק. אפשר לקנות בהם שדרוגים ולפתוח דמויות.</p>
@@ -133,6 +146,8 @@
     <label class="row">צללים<input id="shadows" type="checkbox"></label>
     <label class="row">הצגת FPS (קצב פריימים)<input id="fpsSetting" type="checkbox"></label>
     <label class="row">כפתורי שליטה על המסך<input id="touchSetting" type="checkbox"></label>
+    <label class="row">רטט<input id="hapticsSetting" type="checkbox"></label>
+    <button id="replayTutorial" class="ghost-btn">🎓 להפעיל שוב את המדריך</button>
     <small>ההגדרות נשמרות במכשיר הזה.</small>
   </dialog>
 

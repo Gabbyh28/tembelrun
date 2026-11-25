@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { LANES, HALF, THEMES, runSpeedAt } from './world.js';
 
 const GRAVITY = -17.5, JUMP_V = 6.15, SLIDE_TIME = .78, TURN_WINDOW = 24;
+export const ZIP_Y = 1.55;           // feet height while hanging from the zip line
 
 export const FAIL_REASONS = {
   wall: 'נכנסת בשורת ארונות. לא פנית בזמן!',
@@ -27,7 +28,17 @@ export const FAIL_REASONS = {
   gbics: 'הפלת ערימת קופסאות GBIC. חנן יצטרך לספור מחדש!',
   scrap: 'התנגשת בעגלת שרתים לגריטה.',
   spool: 'נתקעת בתוף סיבים אופטיים.',
+  door: 'שרת נשלף מהארון ישר לתוך הדרך. היה צריך לעקוף או לגלוש!',
+  zipBlock: 'נתקעת בציוד תלוי באמצע הגלישה על הכבל.',
 };
+
+// first-run lesson: the runner slows to a crawl until the right swipe is made
+export const TUTORIAL = [
+  { u: 46, lead: 5, need: ['jump'], dir: 'up', text: 'החליקו למעלה כדי לקפוץ' },
+  { u: 78, lead: 5, need: ['slide'], dir: 'down', text: 'החליקו למטה כדי לגלוש' },
+  { u: 110, lead: 7, need: ['left', 'right'], dir: 'side', text: 'החליקו ימינה או שמאלה כדי לעקוף' },
+  { turn: true, need: ['left', 'right'], dir: 'side', text: 'צומת! החליקו לכיוון הפנייה' },
+];
 
 export class Run {
   constructor(track) {
@@ -41,9 +52,11 @@ export class Run {
   reset(character, opts = {}) {
     this.bonus = { powerBonus: 0, magnetBonus: 0, valueMult: 1, revives: 1, ...(opts.bonus || {}) };
     this.daily = !!opts.daily;
+    this.tut = opts.tutorial ? { i: 0, waiting: null, done: false } : null;
+    this.eventNow = null; this.eventK = 0;
     this.riding = null; this.banked = 0; this.paidRevives = 0;
     this.character = character;
-    this.seg = this.track.reset(opts.random);
+    this.seg = this.track.reset(opts.random, !!opts.tutorial);
     this.u = 2; this.x = 0; this.lane = 1; this.y = 0; this.vy = 0;
     this.slideT = 0; this.sliding = false;
     this.distance = 0; this.speed = 13; this.chips = 0; this.score = 0;
@@ -51,7 +64,7 @@ export class Run {
     this.queuedTurn = null; this.turning = 0;
     this.yaw = this.seg.yaw; this.camYaw = this.seg.yaw;
     this.lateralVel = 0;
-    this.chaserDist = 4; this.chaserHeat = .6; this.lastStumble = -99; this.time = 0;
+    this.chaserDist = opts.tutorial ? 16 : 4; this.chaserHeat = opts.tutorial ? 0 : .6; this.lastStumble = -99; this.time = 0;
     this.powerRemaining = 0; this.magnet = this.invincible = this.giant = this.rolling = this.elastic = this.prayer = false;
     this.reason = ''; this.failKind = ''; this.revives = this.bonus.revives; this.invulnT = 0;
     this.oldSeg = null; this.oldSegT = 0;
@@ -68,6 +81,9 @@ export class Run {
   /* ---------- input ---------- */
   input(action) {
     if (this.mode !== 'running') return;
+    const w = this.tut?.waiting;
+    if (w && w.need.includes(action)) { this.tut.waiting = null; this.tut.i++; this.emit('tutorialStep', { done: this.tut.i >= TUTORIAL.length }); if (this.tut.i >= TUTORIAL.length) this.tut.done = true; }
+    if (this.riding === 'zip' && (action === 'jump' || action === 'slide')) return;
     if (action === 'left' || action === 'right') {
       const s = this.seg;
       const inWindow = this.u > s.length - TURN_WINDOW && s.turns[action];
@@ -88,13 +104,20 @@ export class Run {
   update(dt) {
     if (this.mode === 'over') { this.updateDeath(dt); return; }
     if (this.mode !== 'running') return;
+    this.tutorialTick();
+    if (this.tut?.waiting) dt *= .1;            // slow motion until the lesson's swipe is made
     this.time += dt;
     const s = this.seg;
     this.speed = runSpeedAt(this.distance);
     // special ride sections: hop on a pallet jack or slide in a cable tray
     const R = s.ride;
-    if (R && !this.riding && this.u >= R.from && this.u < R.to) { this.riding = R.type; this.sliding = false; this.y = 0; this.vy = 0; if (s.rideMesh) s.rideMesh.visible = false; this.emit('rideStart', { kind: R.type }); }
-    if (this.riding && (!R || this.u >= R.to)) { this.riding = null; this.emit('rideEnd'); }
+    if (R && !this.riding && this.u >= R.from && this.u < R.to) { this.riding = R.type; this.sliding = false; if (R.type !== 'zip') this.y = 0; this.vy = 0; if (s.rideMesh) s.rideMesh.visible = false; this.emit('rideStart', { kind: R.type }); }
+    if (this.riding && (!R || this.u >= R.to)) { this.riding = null; this.vy = 1.5; this.emit('rideEnd'); }
+    // special events: blackout, FM-200 gas release, missing floor tiles
+    const E = s.event, inEvent = E && this.u >= E.from && this.u < E.to ? E.type : null;
+    if (inEvent !== this.eventNow) { if (inEvent) this.emit('event', { kind: inEvent }); else this.emit('eventEnd', { kind: this.eventNow }); this.eventNow = inEvent; }
+    this.eventK = THREE.MathUtils.damp(this.eventK, inEvent ? 1 : 0, inEvent ? 3 : 1.5, dt);
+    if (inEvent) this.eventKind = inEvent;
     const v = this.speed * (this.giant ? 1.15 : 1) * (this.riding ? 1.35 : 1);
     this.u += v * dt; this.distance += v * dt;
 
@@ -104,7 +127,8 @@ export class Run {
     this.lateralVel = (nx - this.x) / dt; this.x = nx;
 
     // vertical
-    if (this.y > 0 || this.vy > 0) {
+    if (this.riding === 'zip') { this.y = THREE.MathUtils.damp(this.y, ZIP_Y + Math.sin(this.time * 7) * .04, 6, dt); this.vy = 0; }
+    else if (this.y > 0 || this.vy > 0) {
       this.vy += GRAVITY * dt; this.y += this.vy * dt;
       if (this.y <= 0) { this.y = 0; this.vy = 0; this.emit('land'); }
     }
@@ -135,6 +159,14 @@ export class Run {
     this.updateDebris(dt);
   }
 
+  // first-run lesson: wait at each obstacle (or the junction) for the right swipe
+  tutorialTick() {
+    const T = this.tut; if (!T || T.done || T.waiting) return;
+    const step = TUTORIAL[T.i]; if (!step) { T.done = true; return; }
+    const at = step.turn ? this.seg.length - TURN_WINDOW + 6 : step.u - step.lead;
+    if (this.seg.first && this.u >= at) { T.waiting = step; this.emit('tutorial', { step }); }
+  }
+
   get chipScore() { return this._chipScore || 0; }
   set chipScore(v) { this._chipScore = v; }
 
@@ -156,6 +188,17 @@ export class Run {
   // office chairs that roll across the aisle once you get close
   moveObstacles(dt) {
     for (const o of this.seg.obstacles) {
+      if (o.swing && !o.broken) {
+        if (!o.opening && o.u - this.u < o.swing.trigger) { o.opening = true; this.emit('doorOpen'); }
+        if (o.opening && o.open < 1) {
+          o.open = Math.min(1, o.open + dt * o.swing.speed);
+          const door = o.mesh?.getObjectByName('door'), srv = o.mesh?.getObjectByName('server');
+          const e = 1 - Math.pow(1 - o.open, 3);
+          if (door) door.rotation.y = -e * Math.PI * .5;
+          if (srv) srv.position.x = .55 - THREE.MathUtils.smoothstep(o.open, .2, 1) * 1.9;
+        }
+        continue;
+      }
       if (!o.move || o.broken) continue;
       if (!o.rolling && o.u - this.u < o.move.trigger) { o.rolling = true; this.emit('roll'); }
       if (!o.rolling) continue;
@@ -167,8 +210,12 @@ export class Run {
 
   collide() {
     const s = this.seg;
+    const zip = this.riding === 'zip';
     for (const o of s.obstacles) {
       if (o.hit || o.broken) continue;
+      if (!!o.zip !== zip) continue;            // hanging gear only matters on the zip line, ground gear only on foot
+      if (o.swing && o.open < .55) continue;     // the door hasn't swung into the aisle yet
+      if (o.slideOk && this.sliding) continue;   // slide under the pulled-out server
       const du = this.u - o.u;
       const reach = o.len / 2 + .35;
       if (du < -reach || du > reach) continue;
@@ -270,12 +317,14 @@ export class Run {
   }
 
   updateChaser(dt) {
+    if (this.tut && !this.tut.done) { this.chaserDist = 16; this.chaserHeat = 0; return; }
     this.chaserDist = Math.min(16, this.chaserDist + dt * (this.chaserDist < 6 ? .55 : 1.6));
     this.chaserHeat = THREE.MathUtils.clamp(1 - (this.chaserDist - 2) / 7, 0, 1);
   }
 
   fail(kind) {
     if (this.invulnT > 0 && kind !== 'wall') return;
+    if (this.tut && !this.tut.done && kind !== 'wall') { this.shake = .4; this.emit('stumble'); return; }
     this.mode = 'over';
     this.failKind = kind;
     this.reason = FAIL_REASONS[kind] || '';

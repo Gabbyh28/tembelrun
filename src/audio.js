@@ -166,6 +166,14 @@ export class GameAudio {
       case 'doorOpen': this.burst(.35, 900, 3, .1, 'bandpass', -500); this.tone(160, .25, 'triangle', .05, 60, .15); break;
       case 'tutorial': this.tone(784, .15, 'sine', .08); this.tone(1046, .2, 'sine', .07, 0, .1); break;
       case 'tutorialStep': this.tone(1046, .12, 'triangle', .09); this.tone(1318, .18, 'triangle', .08, 0, .08); break;
+      case 'trick': { const b = 660 * Math.pow(2, Math.min(5, ev.chain - 1) / 12 * 2); this.tone(b, .12, 'triangle', .1); this.tone(b * 1.5, .18, 'triangle', .08, 0, .07); this.burst(.18, 3000, 2, .05, 'bandpass', 2000); break; }
+      case 'gold': [784, 988, 1175, 1568, 1976].forEach((f, i) => this.tone(f, .22, 'sine', .09, 0, i * .05)); break;
+      case 'pickup': [523, 784, 1046].forEach((f, i) => this.tone(f, .2, 'triangle', .1, 0, i * .06)); break;
+      case 'mystery': [392, 523, 659, 784, 1046].forEach((f, i) => this.tone(f, .25, 'square', .05, 0, i * .07)); this.burst(.4, 5000, 1, .06, 'highpass'); break;
+      case 'shieldBreak': this.burst(.5, 4000, .8, .25, 'highpass', -2500); this.tone(1400, .3, 'sine', .08, -900); break;
+      case 'boost': this.burst(1.2, 400, .5, .35, 'bandpass', 3000); this.tone(110, 1, 'sawtooth', .1, 220); break;
+      case 'boostEnd': this.burst(.4, 1500, 1, .15, 'bandpass', -1000); break;
+      case 'doubleEnd': this.tone(784, .2, 'sine', .07, -300); break;
       case 'record': [659, 784, 988, 1318].forEach((f, i) => this.tone(f, .35, 'triangle', .1, 0, i * .1)); break;
     }
   }

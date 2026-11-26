@@ -8,7 +8,7 @@ import { UI3D } from './ui3d.js';
 import { GameAudio } from './audio.js';
 import { CHARACTERS, getCharacter, HOST_LINES } from './characters.js';
 import FRAMES from './frames.json';
-import { Wallet, UPGRADES, UNLOCK_COST, dailySeed, mulberry32 } from './economy.js';
+import { Wallet, UPGRADES, UNLOCK_COST, HEADSTART_COST, dailySeed, mulberry32 } from './economy.js';
 import { Music } from './music.js';
 import { Haptic } from './haptics.js';
 import { Leaderboard } from './leaderboard.js';
@@ -40,7 +40,7 @@ async function boot() {
   const themeParam = new URLSearchParams(location.search).get('room');
   if (themeParam) track.firstTheme = themeParam;
   const qs = new URLSearchParams(location.search);
-  track.debugRide = qs.get('ride'); track.debugEvent = qs.get('event');
+  track.debugRide = qs.get('ride'); track.debugEvent = qs.get('event'); track.debugPickups = qs.has('pickups');
   const player = new PlayerView(view.scene, assets);
   const ui3d = new UI3D(view.scene);
   const audio = new GameAudio();
@@ -149,6 +149,14 @@ async function boot() {
       b.onclick = () => { if (wallet.buyUpgrade(u.id)) { audio.unlock(); audio.play({ type: 'power' }); refreshWallet(); renderShop(); } };
       el.append(b); list.append(el);
     }
+    {
+      const el = document.createElement('div'); el.className = 'shop-item';
+      el.innerHTML = `<span class="ic">🚀</span><span><strong>זינוק</strong><small>500 מטר ראשונים בטיסה — עוברים דרך הכול, הפניות לבד. יש לך: ${wallet.headStarts}</small></span>`;
+      const b = document.createElement('button'); b.className = 'buy';
+      b.innerHTML = `${HEADSTART_COST} <i class="qi"></i>`; b.disabled = wallet.balance < HEADSTART_COST;
+      b.onclick = () => { if (wallet.buyHeadStart()) { audio.unlock(); audio.play({ type: 'power' }); refreshWallet(); renderShop(); } };
+      el.append(b); list.append(el);
+    }
     const head = document.createElement('div'); head.className = 'shop-head'; head.textContent = 'דמויות לפתיחה'; list.append(head);
     for (const ch of CHARACTERS) {
       if (!UNLOCK_COST[ch.id]) continue;
@@ -251,11 +259,32 @@ async function boot() {
       n--;
       if (n <= 0) {
         clearInterval(countdownTimer); ui3d.showCount('GO!'); run.mode = 'running'; audio.play({ type: 'go' });
+        offerBoost();
         radio('start'); showRoom(THEMES[run.seg.theme].he);
       } else { ui3d.showCount(String(n)); audio.play({ type: 'tick' }); }
     }, 650);
     syncTouch();
   }
+  // head start: offered for a few seconds at the start of a run if you own one
+  let boostTimer = null;
+  function offerBoost() {
+    const n = wallet.headStarts, b = $('boostBtn');
+    clearTimeout(boostTimer);
+    if (!n || run.tut) { b.hidden = true; return; }
+    $('boostCount').textContent = `×${n}`; b.hidden = false;
+    boostTimer = setTimeout(() => { b.hidden = true; }, 5000);
+  }
+  $('boostBtn').onclick = e => {
+    e.stopPropagation();
+    if (wallet.headStarts > 0 && run.startBoost(500)) { wallet.headStarts = wallet.headStarts - 1; }
+    $('boostBtn').hidden = true;
+  };
+  let trickTimer = null;
+  function showTrick(text) {
+    const el = $('trick'); el.hidden = true; void el.offsetWidth; el.textContent = text; el.hidden = false;
+    clearTimeout(trickTimer); trickTimer = setTimeout(() => { el.hidden = true; }, 1100);
+  }
+  const TRICK_NAMES = { turn: 'פנייה מושלמת!', dive: 'צלילה!', jump: 'על הקצה!', dodge: 'כמעט!', slide: 'ברגע האחרון!' };
   function pause() {
     if (run.mode !== 'running') return;
     run.mode = 'paused'; $('paused').hidden = false; audio.playMusic(false); syncTouch();
@@ -266,7 +295,7 @@ async function boot() {
   function goHome() {
     clearTimeout(overTimer);
     clearInterval(countdownTimer);
-    ['over', 'paused', 'hud', 'countdown', 'powerBar', 'danger', 'turnCue', 'tutorial'].forEach(id => $(id).hidden = true);
+    ['over', 'paused', 'hud', 'countdown', 'powerBar', 'danger', 'turnCue', 'tutorial', 'boostBtn', 'trick'].forEach(id => $(id).hidden = true);
     $('pauseBtn').hidden = true; $('start').hidden = false;
     run.reset(character, { bonus: wallet.runBonuses() }); run.mode = 'ready'; refreshBest(); syncTouch(); music.setWorld(null);
   }
@@ -369,7 +398,14 @@ async function boot() {
       else if (ev.type === 'powerEnd') $('powerBar').hidden = true;
       else if (ev.type === 'stumble') { toast('מעידה!', 700); audio.hananSay('careful', 'תיזהר!'); }
       else if (ev.type === 'room') { showRoom(ev.name); music.setWorld(ev.theme === 'hall' ? null : ev.theme); }
-      else if (ev.type === 'rideStart') toast({ jack: 'על העגלה! החליקו לצדדים 🛒', tray: 'גלישה במגש הכבלים! 🟨', zip: 'תופסים את הכבל! החליקו לצדדים 🪢' }[ev.kind], 1600);
+      else if (ev.type === 'rideStart') toast({ jack: 'על העגלה! החליקו לצדדים 🛒', tray: 'גלישה במגש הכבלים! 🟨' }[ev.kind], 1600);
+      else if (ev.type === 'trick') showTrick(`${TRICK_NAMES[ev.kind]} +${ev.pts}${ev.chain > 1 ? ` ·  רצף ×${ev.chain}` : ''}`);
+      else if (ev.type === 'gold') toast('✨ QSFP זהב! +50', 1400);
+      else if (ev.type === 'pickup') toast(ev.kind === 'shield' ? '🛡 מגן! סופג פגיעה אחת' : '×2 ניקוד כפול ל־12 שניות', 1500);
+      else if (ev.type === 'shieldBreak') toast('🛡 המגן ספג את הפגיעה!', 1200);
+      else if (ev.type === 'mystery') toast({ modules: `🎁 +${ev.n} QSFP`, power: '🎁 כוח מיוחד!', shield: '🎁 מגן!', double: '🎁 ניקוד כפול!', revive: '🎁 עוד הרמה מחנן!' }[ev.kind], 1600);
+      else if (ev.type === 'boost') { toast('🚀 זינוק!', 1000); $('boostBtn').hidden = true; }
+      else if (ev.type === 'boostEnd') toast('נחיתה — ממשיכים!', 1000);
       else if (ev.type === 'event') toast({ blackout: '⚡ הפסקת חשמל! רצים עם פנס', fm200: '🚨 שחרור גז FM-200! ראות נמוכה', tiles: '⚠️ אריחים חסרים — קופצים!' }[ev.kind], 1800);
       else if (ev.type === 'tutorial') { const tu = $('tutorial'); tu.dataset.dir = ev.step.dir; $('tutText').textContent = ev.step.text; tu.hidden = false; }
       else if (ev.type === 'tutorialStep') { $('tutorial').hidden = true; if (ev.done) { store.set('tutorialDone', true); toast('מעולה! עכשיו זה רק אתה והדאטה סנטר 💪', 2200); } }
@@ -385,6 +421,8 @@ async function boot() {
       $('hudChips').textContent = run.chips;
       $('hudScore').textContent = run.score.toLocaleString('he-IL');
       $('hudMult').textContent = run.mult > 1 ? '×' + run.mult : '';
+      $('buffShield').hidden = !run.shield;
+      $('buffDouble').hidden = !(run.doubleT > 0); if (run.doubleT > 0) $('doubleLeft').textContent = Math.ceil(run.doubleT);
       if (run.powerRemaining > 0) $('powerFill').style.width = (run.powerRemaining / (run.powerTotal || character.power.duration) * 100) + '%';
       $('danger').hidden = !(run.mode === 'running' && run.chaserHeat > .45 && run.time > 3);
       const hint = run.mode === 'running' && run.turnHint();

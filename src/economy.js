@@ -7,6 +7,7 @@ export const UPGRADES = [
   { id: 'revive', icon: '🤝', name: 'עוד הרמה מחנן', desc: 'עוד "חנן עוזר לך לקום" חינם בכל ריצה', costs: [600, 1600] },
 ];
 
+export const HEADSTART_COST = 250;
 export const UNLOCK_COST = { technician: 0, avichai: 150, ariel: 300, liad: 500, gabi: 800 };
 
 export class Wallet {
@@ -30,6 +31,9 @@ export class Wallet {
   add(n) { this.balance += n; this.save(); }
   spend(n) { if (this.balance < n) return false; this.balance -= n; this.save(); return true; }
   buyUpgrade(id) { const c = this.nextCost(id); if (c === null || !this.spend(c)) return false; this.levels[id] = this.level(id) + 1; this.save(); return true; }
+  get headStarts() { return this.store.get('headStarts', 0); }
+  set headStarts(n) { this.store.set('headStarts', Math.max(0, n)); }
+  buyHeadStart() { if (!this.spend(HEADSTART_COST)) return false; this.headStarts++; return true; }
   isUnlocked(ch) { return this.unlocked.has(ch); }
   unlock(ch) { if (this.isUnlocked(ch)) return true; if (!this.spend(UNLOCK_COST[ch] ?? 0)) return false; this.unlocked.add(ch); this.save(); return true; }
   runBonuses() {

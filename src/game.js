@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { LANES, HALF, THEMES, runSpeedAt } from './world.js';
 
 const GRAVITY = -17.5, JUMP_V = 6.15, SLIDE_TIME = .78, TURN_WINDOW = 24;
-export const ZIP_Y = 1.55;           // feet height while hanging from the zip line
 
 export const FAIL_REASONS = {
   wall: 'נכנסת בשורת ארונות. לא פנית בזמן!',
@@ -29,7 +28,6 @@ export const FAIL_REASONS = {
   scrap: 'התנגשת בעגלת שרתים לגריטה.',
   spool: 'נתקעת בתוף סיבים אופטיים.',
   door: 'שרת נשלף מהארון ישר לתוך הדרך. היה צריך לעקוף או לגלוש!',
-  zipBlock: 'נתקעת בציוד תלוי באמצע הגלישה על הכבל.',
 };
 
 // first-run lesson: the runner slows to a crawl until the right swipe is made
@@ -61,6 +59,9 @@ export class Run {
     this.slideT = 0; this.sliding = false;
     this.distance = 0; this.speed = 13; this.chips = 0; this.score = 0;
     this.combo = 0; this.comboT = 0; this.mult = 1;
+    this.shield = false; this.doubleT = 0; this.bonusScore = 0;
+    this.boost = 0; this.boostEnd = 0;                     // head start: sprint until this distance
+    this.trickChain = 0; this.trickT = 0; this.lastLaneT = -9; this.slideStartT = -9;
     this.queuedTurn = null; this.turning = 0;
     this.yaw = this.seg.yaw; this.camYaw = this.seg.yaw;
     this.lateralVel = 0;
@@ -83,19 +84,24 @@ export class Run {
     if (this.mode !== 'running') return;
     const w = this.tut?.waiting;
     if (w && w.need.includes(action)) { this.tut.waiting = null; this.tut.i++; this.emit('tutorialStep', { done: this.tut.i >= TUTORIAL.length }); if (this.tut.i >= TUTORIAL.length) this.tut.done = true; }
-    if (this.riding === 'zip' && (action === 'jump' || action === 'slide')) return;
     if (action === 'left' || action === 'right') {
       const s = this.seg;
       const inWindow = this.u > s.length - TURN_WINDOW && s.turns[action];
-      if (inWindow && !this.queuedTurn) { this.queuedTurn = action; this.emit('turnQueued', { side: action }); return; }
+      if (inWindow && !this.queuedTurn) {
+        this.queuedTurn = action; this.emit('turnQueued', { side: action });
+        if (s.length - this.u < 4.5) this.trick('turn');          // turned at the very last moment
+        return;
+      }
       const nl = Math.max(0, Math.min(2, this.lane + (action === 'left' ? -1 : 1)));
-      if (nl !== this.lane) { this.lane = nl; this.emit('lane'); }
+      if (nl !== this.lane) { this.lane = nl; this.lastLaneT = this.time; this.emit('lane'); }
     } else if (action === 'jump') {
       if (this.riding) return;
       if (this.y <= .001 && !this.rolling) { this.vy = JUMP_V; this.sliding = false; this.slideT = 0; this.emit('jump'); }
     } else if (action === 'slide') {
       if (this.rolling || this.riding === 'tray') return;
+      if (this.y > .6) this.trick('dive');                       // slam down from a jump into a slide
       if (this.y > .001) this.vy = Math.min(this.vy, -11);
+      if (!this.sliding) this.slideStartT = this.time;
       this.sliding = true; this.slideT = SLIDE_TIME; this.emit('slide');
     }
   }
@@ -111,15 +117,20 @@ export class Run {
     this.speed = runSpeedAt(this.distance);
     // special ride sections: hop on a pallet jack or slide in a cable tray
     const R = s.ride;
-    if (R && !this.riding && this.u >= R.from && this.u < R.to) { this.riding = R.type; this.sliding = false; if (R.type !== 'zip') this.y = 0; this.vy = 0; if (s.rideMesh) s.rideMesh.visible = false; this.emit('rideStart', { kind: R.type }); }
-    if (this.riding && (!R || this.u >= R.to)) { this.riding = null; this.vy = 1.5; this.emit('rideEnd'); }
+    if (R && !this.riding && this.u >= R.from && this.u < R.to) { this.riding = R.type; this.sliding = false; this.y = 0; this.vy = 0; if (s.rideMesh) s.rideMesh.visible = false; this.emit('rideStart', { kind: R.type }); }
+    if (this.riding && (!R || this.u >= R.to)) { this.riding = null; this.emit('rideEnd'); }
     // special events: blackout, FM-200 gas release, missing floor tiles
     const E = s.event, inEvent = E && this.u >= E.from && this.u < E.to ? E.type : null;
     if (inEvent !== this.eventNow) { if (inEvent) this.emit('event', { kind: inEvent }); else this.emit('eventEnd', { kind: this.eventNow }); this.eventNow = inEvent; }
     this.eventK = THREE.MathUtils.damp(this.eventK, inEvent ? 1 : 0, inEvent ? 3 : 1.5, dt);
     if (inEvent) this.eventKind = inEvent;
-    const v = this.speed * (this.giant ? 1.15 : 1) * (this.riding ? 1.35 : 1);
+    if (this.boost && this.distance >= this.boostEnd) { this.boost = 0; this.invulnT = 1.5; this.emit('boostEnd'); }
+    // head start: auto-take the turn at every junction
+    if (this.boost && !this.queuedTurn && this.u > s.length - 10) this.queuedTurn = s.turns.left && (!s.turns.right || Math.random() < .5) ? 'left' : 'right';
+    const v = this.speed * (this.giant ? 1.15 : 1) * (this.riding ? 1.35 : 1) * (this.boost ? 2.4 : 1);
     this.u += v * dt; this.distance += v * dt;
+    if (this.doubleT > 0) { this.doubleT -= dt; this.bonusScore += v * dt; if (this.doubleT <= 0) this.emit('doubleEnd'); }
+    if ((this.trickT -= dt) <= 0) this.trickChain = 0;
 
     // lateral
     const tx = LANES[this.lane];
@@ -127,8 +138,7 @@ export class Run {
     this.lateralVel = (nx - this.x) / dt; this.x = nx;
 
     // vertical
-    if (this.riding === 'zip') { this.y = THREE.MathUtils.damp(this.y, ZIP_Y + Math.sin(this.time * 7) * .04, 6, dt); this.vy = 0; }
-    else if (this.y > 0 || this.vy > 0) {
+    if (this.y > 0 || this.vy > 0) {
       this.vy += GRAVITY * dt; this.y += this.vy * dt;
       if (this.y <= 0) { this.y = 0; this.vy = 0; this.emit('land'); }
     }
@@ -141,6 +151,7 @@ export class Run {
     this.moveObstacles(dt);
     if (this.invulnT > 0) this.invulnT -= dt;
     if (this.invulnT <= 0) this.collide();
+    this.nearMisses();
     this.pickups(dt);
     this.updatePower(dt);
     this.updateChaser(dt);
@@ -154,7 +165,7 @@ export class Run {
     // score
     this.comboT -= dt; if (this.comboT <= 0) this.combo = 0;
     this.mult = 1 + Math.min(4, Math.floor(this.combo / 10));
-    this.score = Math.floor(this.distance) + this.chipScore;
+    this.score = Math.floor(this.distance + this.bonusScore) + this.chipScore;
     this.shake = Math.max(0, this.shake - dt * 2.5);
     this.updateDebris(dt);
   }
@@ -210,10 +221,8 @@ export class Run {
 
   collide() {
     const s = this.seg;
-    const zip = this.riding === 'zip';
     for (const o of s.obstacles) {
       if (o.hit || o.broken) continue;
-      if (!!o.zip !== zip) continue;            // hanging gear only matters on the zip line, ground gear only on foot
       if (o.swing && o.open < .55) continue;     // the door hasn't swung into the aisle yet
       if (o.slideOk && this.sliding) continue;   // slide under the pulled-out server
       const du = this.u - o.u;
@@ -222,25 +231,64 @@ export class Run {
       const reachX = .95 * (this.giant ? 1.6 : 1);
       const laneHit = o.x !== undefined ? Math.abs(this.x - o.x) < reachX + (o.halfW ? o.halfW - .55 : 0) : o.lanes.length === 3 || o.lanes.some(l => Math.abs(this.x - LANES[l]) < reachX);
       if (!laneHit) continue;
-      if (this.invincible) {
+      if (this.invincible || this.boost) {
         if (o.type === 'pit') continue; // ride over it
         this.smash(o); continue;
       }
+      // track how close the runner came, for "near miss" tricks
+      o.near = true;
+      if (o.need === 'jump' && o.type !== 'pit') o.minClear = Math.min(o.minClear ?? 9, this.y - o.clear);
       if (o.need === 'jump') {
-        if (o.type === 'pit') { if (this.y < .02 && Math.abs(du) < o.len / 2 - .25) return this.fail('pit'); continue; }
+        if (o.type === 'pit') { if (this.y < .02 && Math.abs(du) < o.len / 2 - .25) { if (this.useShield(o, false)) { this.vy = JUMP_V; continue; } return this.fail('pit'); } continue; }
         if (this.y >= o.clear) continue;
+        if (this.useShield(o)) continue;
         o.hit = true;
         if (o.stumble) { this.stumble(); continue; }
         return this.fail(o.type);
       }
-      if (o.need === 'slide') { if (this.sliding) continue; o.hit = true; return this.fail('bar'); }
+      if (o.need === 'slide') { if (this.sliding) continue; if (this.useShield(o)) continue; o.hit = true; return this.fail('bar'); }
       if (o.need === 'dodge') {
         // clipping the edge of an obstacle while changing lanes is a stumble, a head-on hit ends the run
         const ox = o.x ?? LANES[o.lanes[0]], ol = LANES.reduce((b, v, i) => Math.abs(v - ox) < Math.abs(LANES[b] - ox) ? i : b, 0);
         const edge = Math.abs(this.x - ox) > (o.halfW ?? .4) + .15;
+        if (this.useShield(o)) continue;
         o.hit = true;
         if (edge) { this.stumble(); this.lane = this.x < ox ? Math.max(0, ol - 1) : Math.min(2, ol + 1); continue; }
         return this.fail(o.type);
+      }
+    }
+  }
+
+  // the shield takes one hit: the obstacle is knocked away instead
+  useShield(o, smash = true) {
+    if (!this.shield) return false;
+    this.shield = false; this.invulnT = 1;
+    if (smash) this.smash(o); else this.shake = .4;
+    this.emit('shieldBreak');
+    return true;
+  }
+
+  // style points: perfect turn, dive, near misses. Chaining them within 3 s multiplies the bonus.
+  trick(kind) {
+    this.trickChain = this.trickT > 0 ? Math.min(5, this.trickChain + 1) : 1;
+    this.trickT = 3;
+    const base = { turn: 40, dive: 25, jump: 30, dodge: 30, slide: 30 }[kind];
+    const pts = base * this.trickChain * this.mult * (this.doubleT > 0 ? 2 : 1);
+    this.chipScore += pts;
+    this.emit('trick', { kind, pts, chain: this.trickChain });
+  }
+
+  // obstacles just passed: was it close?
+  nearMisses() {
+    for (const o of this.seg.obstacles) {
+      if (o.passed || o.hit || o.broken || o.type === 'pit') continue;
+      if (this.u - o.u < o.len / 2 + .5) continue;
+      o.passed = true;
+      if (o.need === 'jump' && o.minClear !== undefined && o.minClear < .22) this.trick('jump');
+      else if (o.need === 'slide' && o.near && this.time - this.slideStartT < .32) this.trick('slide');
+      else if (o.need === 'dodge') {
+        const ox = o.x ?? LANES[o.lanes[0]];
+        if (Math.abs(this.x - ox) < 2.4 && this.time - this.lastLaneT < .5) this.trick('dodge');
       }
     }
   }
@@ -284,17 +332,43 @@ export class Run {
       }
       if (Math.abs(c.u - this.u) < .9 + this.bonus.magnetBonus * .15 && Math.abs(c.x - this.x) < (.8 + this.bonus.magnetBonus * .12) * (this.giant ? 1.8 : 1) && c.y > this.y - .3 && c.y < this.y + (this.sliding ? 1.0 : 2.1) * (this.giant ? 1.8 : 1)) {
         c.taken = true; this.chips++; this.combo++; this.comboT = 2.2;
-        this.chipScore += 10 * this.mult;
+        this.chipScore += 10 * this.mult * (this.doubleT > 0 ? 2 : 1);
         this.emit('chip', { combo: this.combo });
       }
     }
     for (const p of s.powerups) {
       if (p.taken) continue;
-      if (Math.abs(p.u - this.u) < 1.1 && Math.abs(p.x - this.x) < 1.0 && this.y < 2) {
+      if (Math.abs(p.u - this.u) < 1.1 && Math.abs(p.x - this.x) < (this.magnet && p.kind === 'gold' ? 2.2 : 1.0) && this.y < 2) {
         p.taken = true; p.mesh.visible = false;
-        this.activatePower();
+        this.collect(p.kind || 'power');
       }
     }
+  }
+
+  collect(kind) {
+    if (kind === 'power') return this.activatePower();
+    if (kind === 'gold') { this.chips += 50; this.chipScore += 500 * this.mult * (this.doubleT > 0 ? 2 : 1); return this.emit('gold'); }
+    if (kind === 'shield') { this.shield = true; return this.emit('pickup', { kind }); }
+    if (kind === 'double') { this.doubleT = 12; return this.emit('pickup', { kind }); }
+    if (kind === 'mystery') {
+      // a random reward from the box
+      const r = Math.random();
+      let reward;
+      if (r < .4) { const n = [50, 100, 150][Math.random() * 3 | 0]; this.chips += n; reward = { kind: 'modules', n }; }
+      else if (r < .62) { this.activatePower(); reward = { kind: 'power' }; }
+      else if (r < .8) { this.shield = true; reward = { kind: 'shield' }; }
+      else if (r < .9) { this.doubleT = 12; reward = { kind: 'double' }; }
+      else { this.revives++; reward = { kind: 'revive' }; }
+      return this.emit('mystery', reward);
+    }
+  }
+
+  // head start: sprint the next 500 m, smashing through everything, turns taken for you
+  startBoost(meters = 500) {
+    if (this.mode !== 'running' || this.boost) return false;
+    this.boost = 1; this.boostEnd = this.distance + meters;
+    this.chaserDist = 16; this.emit('boost');
+    return true;
   }
 
   activatePower() {

@@ -51,6 +51,10 @@ export class Haptic {
       case 'revive': this.success(); break;
       case 'event': this.pattern([30, 60, 30, 60, 30]); break;
       case 'doorOpen': this.impact('light'); break;
+      case 'trick': this.impact(ev.chain > 2 ? 'medium' : 'light'); break;
+      case 'gold': case 'mystery': case 'pickup': this.success(); break;
+      case 'shieldBreak': this.impact('heavy'); break;
+      case 'boost': this.pattern([60, 40, 60, 40, 120]); break;
     }
   }
 }

@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import FRAMES from './frames.json';
 
 const loader = new THREE.TextureLoader();
+// slide-clip frame where each runner is in a compact crouch (used to ride the cable tray)
+const RIDE_CROUCH = { technician: 14, ariel: 3, avichai: 4, liad: 3, gabi: 3 };
 const cache = {};
 export function loadAtlas(name) {
   if (!cache[name]) {
@@ -46,6 +48,10 @@ export class PlayerView {
     this.aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: assets.glow, color: 0x66ccff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
     this.aura.scale.set(3, 3.6, 1); this.aura.position.y = 1;
     this.group.add(this.aura);
+    // shield bubble
+    this.bubble = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshPhysicalMaterial({ color: 0x9fe8ff, emissive: 0x2a8cff, emissiveIntensity: .35, transparent: true, opacity: .18, roughness: .05, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide }));
+    this.bubble.scale.set(.85, 1.15, .85); this.bubble.position.y = .95; this.bubble.visible = false; this.bubble.renderOrder = 2;
+    this.group.add(this.bubble);
     scene.add(this.group);
     this.atlases = {};
     // Avichai's gas: soft green clouds puffing out behind the giant (world space)
@@ -165,7 +171,7 @@ export class PlayerView {
     this.updateGas(run, dt, camera);
     // ride vehicles under the runner
     if (!this.rides) {
-      this.rides = { jack: this.assets.obstacleKit.jack.clone(), tray: this.assets.obstacleKit.sled.clone(), zip: this.assets.obstacleKit.trolley.clone() };
+      this.rides = { jack: this.assets.obstacleKit.jack.clone(), tray: this.assets.obstacleKit.sled.clone() };
       for (const m of Object.values(this.rides)) { m.visible = false; this.scene.add(m); }
       this.sparks = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.assets.redGlow, color: 0xffb040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       this.sparks.visible = false; this.scene.add(this.sparks);
@@ -173,7 +179,7 @@ export class PlayerView {
     for (const [k, m] of Object.entries(this.rides)) {
       m.visible = run.riding === k && run.mode !== 'ready';
       if (!m.visible) continue;
-      m.position.copy(run.world); m.position.y = k === 'zip' ? 1.55 + 2.2 : 0;
+      m.position.copy(run.world); m.position.y = 0;
       m.rotation.y = run.camYaw + Math.sin(t * 9) * .02;
     }
     this.sparks.visible = run.riding === 'tray' && run.mode === 'running';
@@ -192,15 +198,12 @@ export class PlayerView {
     if (run.sliding && !this.wasSliding) this.squash = .8;
     this.wasAir = air; this.wasSliding = run.sliding;
     this.squash = THREE.MathUtils.damp(this.squash || 0, 0, 9, dt);
-    if (run.riding === 'zip' && run.mode === 'running') {
-      // hanging from the trolley handle, legs swinging
-      if (this.hasAnim('jump')) { const n = FRAMES[ch.atlas].anims.jump.count; this.showAnim('jump', Math.floor(n * .42) + (Math.floor(t * 5) % 2), scale); }
-      else this.showFrame(ch.atlas, 8, scale);
-    } else if (run.riding === 'jack' && run.mode === 'running') {
+    if (run.riding === 'jack' && run.mode === 'running') {
       if (this.hasAnim('idle')) this.showAnim('idle', this.animLoop('idle', dt, 1.4), scale);   // riding the forks, balancing
       else this.showFrame(ch.atlas, 11, scale);
     } else if (run.riding === 'tray' && run.mode === 'running') {
-      if (this.hasAnim('slide')) { const n = FRAMES[ch.atlas].anims.slide.count; this.showAnim('slide', Math.floor(n * .45) + (Math.floor(t * 8) % 2), scale); }
+      // crouched and steady, surfing the tray: one held pose per runner, no frame flicker
+      if (this.hasAnim('slide')) this.showAnim('slide', RIDE_CROUCH[ch.id] ?? 3, scale);
       else this.showFrame(ch.atlas, 9, scale);                   // sliding pose inside the tray
     } else if (run.rolling && this.hasAnim('roll')) {
       this.showAnim('roll', this.animLoop('roll', dt, 1.3), scale);
@@ -251,15 +254,17 @@ export class PlayerView {
     // face the camera around the vertical axis only
     this.group.rotation.y = Math.atan2(camera.position.x - run.world.x, camera.position.z - run.world.z);
     // lean into lane changes
-    this.card.rotation.z = THREE.MathUtils.damp(this.card.rotation.z, -run.lateralVel * .03 + (air ? -run.vy * .004 : 0) + (run.riding === 'zip' ? Math.sin(t * 2.6) * .05 : 0), 12, dt);
+    this.card.rotation.z = THREE.MathUtils.damp(this.card.rotation.z, -run.lateralVel * .03 + (air ? -run.vy * .004 : 0) + (run.riding === 'tray' ? Math.sin(t * 3.1) * .035 - run.lateralVel * .03 : 0), 12, dt);
     const sh = 1.1 * scale * (1 - Math.min(.6, run.y * .25));
     this.shadow.scale.set(sh * (run.rolling ? 1.2 : .9), sh * .7, 1);
     this.shadow.material.opacity = .8 - Math.min(.5, run.y * .2);
     // aura when a power is active / prayer glow
-    const target = run.powerRemaining > 0 ? .55 + Math.sin(t * 8) * .1 : 0;
+    this.bubble.visible = !!run.shield && run.mode === 'running';
+    if (this.bubble.visible) { this.bubble.material.opacity = .16 + Math.sin(t * 5) * .05; this.bubble.rotation.y = t; this.bubble.scale.setScalar(1).multiply(new THREE.Vector3(.85 * scale, 1.15 * scale, .85 * scale)); }
+    const target = run.powerRemaining > 0 || run.boost ? .55 + Math.sin(t * 8) * .1 : 0;
     this.aura.material.opacity = THREE.MathUtils.lerp(this.aura.material.opacity, target, .1);
     this.aura.visible = this.aura.material.opacity > .01;
-    this.aura.material.color.set(run.prayer ? 0xffffff : run.giant ? 0x9be15d : 0x66ccff);
+    this.aura.material.color.set(run.boost ? 0xff9a1f : run.prayer ? 0xffffff : run.giant ? 0x9be15d : 0x66ccff);
     this.aura.scale.set(3 * scale, 3.6 * scale, 1);
     this.mat.emissiveIntensity = run.prayer ? .25 : 0;
     // the giant goes a little see-through so the aisle ahead stays readable

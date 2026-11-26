@@ -61,6 +61,20 @@ export class View {
     // the outage: red rolling light behind the runner
     this.outage = new THREE.PointLight(0xff2a14, 0, 14, 2);
     this.scene.add(this.outage);
+    // the outage you can see: smoke and sparks crawling after the runner, darkness behind
+    {
+      const mk = (draw, size = 64) => { const c = document.createElement('canvas'); c.width = c.height = size; draw(c.getContext('2d'), size); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+      const smokeTex = mk((x, S) => { for (let i = 0; i < 6; i++) { const cx = S * (.3 + Math.random() * .4), cy = S * (.3 + Math.random() * .4), r = S * (.2 + Math.random() * .25); const g = x.createRadialGradient(cx, cy, 0, cx, cy, r); g.addColorStop(0, 'rgba(255,255,255,.7)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, S, S); } }, 128);
+      const sparkTex = mk((x, S) => { const g = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.25, 'rgba(255,200,120,.9)'); g.addColorStop(1, 'rgba(255,80,20,0)'); x.fillStyle = g; x.fillRect(0, 0, S, S); }, 32);
+      this.wave = { smoke: [], sparks: [], acc: 0 };
+      for (let i = 0; i < 36; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x1a0805, transparent: true, opacity: 0, depthWrite: false })); s.visible = false; s.userData = { life: 0 }; this.scene.add(s); this.wave.smoke.push(s); }
+      for (let i = 0; i < 48; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, color: 0xffb060, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); s.visible = false; s.userData = { life: 0, v: new THREE.Vector3() }; this.scene.add(s); this.wave.sparks.push(s); }
+      // floor darkness that trails the wave
+      const dark = mk((x, S) => { const g = x.createLinearGradient(0, 0, 0, S); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.35, 'rgba(0,0,0,.85)'); g.addColorStop(1, 'rgba(0,0,0,.95)'); x.fillStyle = g; x.fillRect(0, 0, S, S); }, 64);
+      this.wave.floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: dark, transparent: true, depthWrite: false, opacity: 0 }));
+      this.wave.floor.rotation.x = -Math.PI / 2; this.wave.floor.renderOrder = 1; this.wave.floor.visible = false;
+      this.scene.add(this.wave.floor);
+    }
     // events reuse existing lights (an extra light costs every pixel, every frame):
     // the first pooled light becomes the head torch, the outage light the alarm beacon
     // FM-200 discharge: soft white clouds pouring out of the ceiling
@@ -244,9 +258,8 @@ export class View {
     const p = run.world;
     const sliding = run.sliding ? 1 : 0;
     const back = run.giant ? 8.2 : 5.4, up = run.giant ? 3.3 : 2.85 - sliding * .35;
-    // rise with the jump so the runner never hides the aisle ahead (and with the zip line)
-    this.zipMix = THREE.MathUtils.damp(this.zipMix || 0, run.riding === 'zip' ? 1 : 0, 3, dt);
-    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * (.4 - .1 * this.zipMix), p.z - fwd.z * back);
+    // rise with the jump so the runner never hides the aisle ahead
+    const desired = new THREE.Vector3(p.x - fwd.x * back, up + run.y * .4, p.z - fwd.z * back);
     if (run.mode === 'over') {
       // pull back and look down at the scene
       desired.set(p.x - fwd.x * (back + 2.2), up + 1.4, p.z - fwd.z * (back + 2.2));
@@ -261,8 +274,12 @@ export class View {
       this.camera.position.x += (Math.random() - .5) * s; this.camera.position.y += (Math.random() - .5) * s;
     }
     const ahead = run.giant ? 13 : 8;
-    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * (.15 + .4 * this.zipMix), p.z + fwd.z * ahead);
+    this.lookAt.set(p.x + fwd.x * ahead, (run.giant ? 1.6 : 1.1) + run.y * .15, p.z + fwd.z * ahead);
     this.camera.lookAt(this.lookAt);
+    // speed rush: widen the view while the head start sprints
+    const baseFov = innerWidth < innerHeight ? 74 : 62;
+    this.fovKick = THREE.MathUtils.damp(this.fovKick || 0, run.boost ? 14 : 0, 4, dt);
+    if (Math.abs(this.camera.fov - (baseFov + this.fovKick)) > .05) { this.camera.fov = baseFov + this.fovKick; this.camera.updateProjectionMatrix(); }
     // lean slightly into lane changes / turns
     this.camera.rotateZ(THREE.MathUtils.clamp(-run.lateralVel * .006, -.05, .05));
 
@@ -280,6 +297,7 @@ export class View {
     this.key.target.position.set(p.x - fwd.x * -2, 0, p.z - fwd.z * -2);
     this.placeLights(run);
     this.updateEvent(run, dt, t, p, fwd);
+    this.updateWave(run, dt, t, p, fwd);
 
     // outage glow behind the runner
     const heat = run.chaserHeat || 0;
@@ -356,6 +374,53 @@ export class View {
       sp.position.y = Math.max(.6, sp.position.y + d.vy * dt);
       sp.scale.setScalar(1.2 + a * 4.5);
       sp.material.opacity = .32 * Math.sin(Math.PI * Math.min(1, a)) * Math.max(gas, .3);
+    }
+  }
+
+  updateWave(run, dt, t, p, fwd) {
+    const W = this.wave, heat = (run.mode === 'running' || run.mode === 'over') && run.time > 2 ? run.chaserHeat || 0 : 0;
+    const right = this.tmpR || (this.tmpR = new THREE.Vector3()); right.set(-fwd.z, 0, fwd.x);
+    // The wave is drawn no closer to the camera than ~2 m in front of it: when the real
+    // outage is nearer than that it creeps in along the bottom and edges of the screen.
+    const camBack = run.giant ? 8.2 : 5.4, dist = Math.min(run.chaserDist, camBack - 2);
+    const front = this.tmpF || (this.tmpF = new THREE.Vector3()); front.copy(p).addScaledVector(fwd, -dist);
+    const halfW = Math.min(3.4, (camBack - dist) * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect + .4);
+    W.acc += dt * heat * 80;
+    while (W.acc >= 1) {
+      W.acc--;
+      const side = (Math.random() < .5 ? -1 : 1) * halfW * (.45 + Math.random() * .6);
+      if (Math.random() < .55) {
+        const s = W.smoke.find(x => x.userData.life <= 0); if (!s) continue;
+        s.position.copy(front).addScaledVector(right, side).addScaledVector(fwd, -Math.random() * 1.2).setY(Math.random() * .9);
+        s.userData.life = s.userData.total = 1 + Math.random() * .7; s.userData.size = 1.3 + Math.random() * 1.4; s.visible = true;
+      } else {
+        const s = W.sparks.find(x => x.userData.life <= 0); if (!s) continue;
+        s.position.copy(front).addScaledVector(right, side * (.3 + Math.random() * .7)).setY(Math.random() * 1.4);
+        s.userData.v.copy(fwd).multiplyScalar(3 + Math.random() * 5).addScaledVector(right, (Math.random() - .5) * 3).setY(1 + Math.random() * 3);
+        s.userData.life = s.userData.total = .35 + Math.random() * .4; s.visible = true;
+      }
+    }
+    for (const s of W.smoke) {
+      const d = s.userData; if (d.life <= 0) continue;
+      d.life -= dt; if (d.life <= 0) { s.visible = false; continue; }
+      const a = 1 - d.life / d.total;
+      s.position.y += dt * .5; s.scale.setScalar(d.size * (1 + a));
+      s.material.opacity = .92 * Math.sin(Math.PI * a);
+    }
+    for (const s of W.sparks) {
+      const d = s.userData; if (d.life <= 0) continue;
+      d.life -= dt; if (d.life <= 0) { s.visible = false; continue; }
+      d.v.y -= 9 * dt; s.position.addScaledVector(d.v, dt);
+      if (s.position.y < .02) { s.position.y = .02; d.v.y *= -.4; }
+      s.scale.setScalar(.12 + .1 * (d.life / d.total)); s.material.opacity = Math.min(1, d.life / d.total * 2);
+    }
+    // darkness swallowing the floor behind the wave
+    const f = W.floor; f.visible = heat > .05;
+    if (f.visible) {
+      f.position.copy(front).addScaledVector(fwd, .6).setY(.03);
+      f.rotation.z = Math.atan2(fwd.x, fwd.z) + Math.PI;
+      f.scale.set(7.4, 4.5, 1);
+      f.material.opacity = Math.min(1, heat * 1.4);
     }
   }
 

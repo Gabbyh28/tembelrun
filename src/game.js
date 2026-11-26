@@ -28,6 +28,15 @@ export const FAIL_REASONS = {
   scrap: 'התנגשת בעגלת שרתים לגריטה.',
   spool: 'נתקעת בתוף סיבים אופטיים.',
   door: 'שרת נשלף מהארון ישר לתוך הדרך. היה צריך לעקוף או לגלוש!',
+  desk: 'נכנסת בעמדת מפעיל. שלושה מסכים עפו!',
+  kiosk: 'התנגשת בעמדת מסך ניידת בחדר הבקרה.',
+  screens: 'שורת מסכים תלויה. היה צריך לגלוש מתחת!',
+  condenser: 'התנגשת ביחידת עיבוי על הגג.',
+  pipebridge: 'גשר צנרת מים קרים. היה צריך לגלוש מתחת!',
+  busbar: 'פסי נחושת תלויים. היה צריך לגלוש מתחת!',
+  batcart: 'התנגשת בעגלת מצברים. כבדה!',
+  spillkit: 'נכנסת בערכת שפך החומצה.',
+  conveyor: 'מסוע עליון. היה צריך לגלוש מתחת!',
 };
 
 // first-run lesson: the runner slows to a crawl until the right swipe is made
@@ -246,7 +255,7 @@ export class Run {
         if (o.stumble) { this.stumble(); continue; }
         return this.fail(o.type);
       }
-      if (o.need === 'slide') { if (this.sliding) continue; if (this.useShield(o)) continue; o.hit = true; return this.fail('bar'); }
+      if (o.need === 'slide') { if (this.sliding) continue; if (this.useShield(o)) continue; o.hit = true; return this.fail(FAIL_REASONS[o.type] ? o.type : 'bar'); }
       if (o.need === 'dodge') {
         // clipping the edge of an obstacle while changing lanes is a stumble, a head-on hit ends the run
         const ox = o.x ?? LANES[o.lanes[0]], ol = LANES.reduce((b, v, i) => Math.abs(v - ox) < Math.abs(LANES[b] - ox) ? i : b, 0);

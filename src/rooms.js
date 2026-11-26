@@ -4,8 +4,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { canvas, tex, heightToNormal, noise, rand } from './textures.js';
+import { moreRoomAssets, moreRoomObstacles, buildMoreRoom } from './rooms2.js';
 
-const STEP = 3.6;
+export const STEP = 3.6;
 
 /* ------------------------------------------------------------------ */
 /* Textures                                                             */
@@ -255,6 +256,7 @@ export function roomAssets(A) {
   warehouseAssets(A, R);
   storeroomAssets(A, R);
   R.gensetSteel = gensetSteelGeometry();
+  moreRoomAssets(A, R);
   return R;
 }
 
@@ -383,7 +385,7 @@ export function roomObstacles(A, R) {
     for (let x = -3.2; x <= 3.2; x += 1.6) { const s = new THREE.Mesh(new THREE.BoxGeometry(.08, .2, .4), R.darkSteel); s.position.set(x, .1, 0); g.add(s); }
     kit.condensate = shadow(g);
   }
-  Object.assign(kit, warehouseObstacles(A, R), storeroomObstacles(A, R));
+  Object.assign(kit, warehouseObstacles(A, R), storeroomObstacles(A, R), moreRoomObstacles(A, R));
   kit.table = coffeeTable(R);
   return kit;
 }
@@ -398,39 +400,40 @@ export function buildRoom(kind, ctx) {
   if (kind === 'plenum') return buildPlenum(ctx);
   if (kind === 'warehouse') return buildWarehouse(ctx);
   if (kind === 'storeroom') return buildStoreroom(ctx);
+  return buildMoreRoom(kind, ctx);
 }
 
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0);
 
-function planeAlong(own, mat, len, h, uvW, uvH) {
+export function planeAlong(own, mat, len, h, uvW, uvH) {
   const geo = new THREE.PlaneGeometry(len, h);
   const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * uvW, uv.getY(i) * uvH);
   return own(new THREE.Mesh(geo, mat));
 }
 
 // side wall plane from u=a..b at lateral x facing the aisle
-function sideWall(ctx, mat, side, a, b, x, h, tile = 2.4, tileH = h) {
+export function sideWall(ctx, mat, side, a, b, x, h, tile = 2.4, tileH = h) {
   const len = b - a; if (len <= .01) return;
   const m = planeAlong(ctx.own, mat, len, h, len / tile, h / tileH);
   m.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
   m.position.set(x, h / 2, -(a + len / 2)); m.receiveShadow = true;
   ctx.g.add(m);
 }
-function endWall(ctx, mat, x0, x1, u, h, tile = 2.4, tileH = h) {
+export function endWall(ctx, mat, x0, x1, u, h, tile = 2.4, tileH = h) {
   const w = x1 - x0, m = planeAlong(ctx.own, mat, w, h, w / tile, h / tileH);
   m.position.set((x0 + x1) / 2, h / 2, -u); m.receiveShadow = true; ctx.g.add(m);
 }
-function ceiling(ctx, mat, y, u0, u1, width, tile = 2.4) {
+export function ceiling(ctx, mat, y, u0, u1, width, tile = 2.4) {
   const len = u1 - u0, geo = new THREE.PlaneGeometry(width, len); geo.rotateX(Math.PI / 2);
   const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * width / tile, uv.getY(i) * len / tile);
   const m = ctx.own(new THREE.Mesh(geo, mat)); m.position.set(0, y, -(u0 + len / 2)); ctx.g.add(m);
 }
-function runAlong(ctx, geoFn, mat, x, y, u0, u1) {
+export function runAlong(ctx, geoFn, mat, x, y, u0, u1) {
   const len = u1 - u0; const m = ctx.own(new THREE.Mesh(geoFn(len), mat)); m.position.set(x, y, -(u0 + len / 2)); m.castShadow = true; ctx.g.add(m); return m;
 }
-const tubeZ = r => len => new THREE.CylinderGeometry(r, r, len, 12).rotateX(Math.PI / 2);
-const boxZ = (w, h) => len => new THREE.BoxGeometry(w, h, len);
-function instanced(ctx, geo, mat, list) {
+export const tubeZ = r => len => new THREE.CylinderGeometry(r, r, len, 12).rotateX(Math.PI / 2);
+export const boxZ = (w, h) => len => new THREE.BoxGeometry(w, h, len);
+export function instanced(ctx, geo, mat, list) {
   if (!list.length) return null;
   const im = new THREE.InstancedMesh(geo, mat, list.length);
   list.forEach((m, i) => im.setMatrixAt(i, m));
@@ -438,7 +441,7 @@ function instanced(ctx, geo, mat, list) {
   ctx.g.add(im); return im;
 }
 // u-range of a side: stop short of an open junction, run into the corner when closed
-const sideRange = (ctx, open, depth) => [ctx.u0, open ? ctx.L - ctx.HALF : ctx.uEnd + depth];
+export const sideRange = (ctx, open, depth) => [ctx.u0, open ? ctx.L - ctx.HALF : ctx.uEnd + depth];
 
 /* ---------- Support wing gallery (from the photos) ---------- */
 function buildGallery(ctx) {

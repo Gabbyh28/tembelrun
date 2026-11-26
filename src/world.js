@@ -25,6 +25,10 @@ export const THEMES = {
   storeroom: { kind: 'storeroom', height: 5.6, name: "HANAN'S STOREROOM", he: 'המחסן של חנן', light: 0xfff0d6, intensity: 1.5, fog: 0x14110c, fogDensity: .016, duct: 0xd11f1f, env: .4 },
   warehouse: { kind: 'warehouse', height: 9, name: 'WAREHOUSE / LOGISTICS', he: 'המחסן', light: 0xfff1d8, intensity: 4.2, fog: 0x15140f, fogDensity: .012, duct: 0xf2c200, env: .45 },
   generator: { kind: 'generator', height: 6.2, name: 'GENERATOR HALL', he: 'חדר גנרטורים', light: 0xffcf6a, intensity: 2.6, fog: 0x1c160a, fogDensity: .016, duct: 0xf2c200, env: .3 },
+  noc: { kind: 'noc', height: 4.2, camMax: 3.6, name: 'NOC  CONTROL ROOM', he: 'חדר הבקרה (NOC)', light: 0x9fc4ff, intensity: 1.1, fog: 0x070b14, fogDensity: .016, duct: 0x2aa8e0, env: .25, exposure: .95 },
+  roof: { kind: 'roof', height: 40, camMax: 6, name: 'ROOFTOP  CHILLER YARD', he: 'הגג — חצר הצ׳ילרים', light: 0xdfe8ff, intensity: 1.4, fog: 0x0e1626, fogDensity: .014, duct: 0xf2c200, env: .3, exposure: 1, rain: true, outdoor: true },
+  battery: { kind: 'battery', height: 3.8, camMax: 3.3, name: 'UPS BATTERY ROOM', he: 'חדר המצברים', light: 0xeaf6ff, intensity: 1.1, fog: 0x0c100c, fogDensity: .02, duct: 0xd11f1f, env: .35 },
+  dock: { kind: 'dock', height: 7.5, name: 'LOADING DOCK', he: 'רציף הפריקה', light: 0xffe6c4, intensity: 3, fog: 0x13120e, fogDensity: .013, duct: 0xf2c200, env: .4 },
   plenum: { kind: 'plenum', height: 4.4, name: 'AIR PLENUM', he: 'חדר פלנום', light: 0xcfe6ff, intensity: 1, fog: 0x0b1a24, fogDensity: .02, duct: 0x2aa8e0, wind: 3.5 },
 };
 const ROOM_OBSTACLES = {
@@ -34,14 +38,18 @@ const ROOM_OBSTACLES = {
   generator: { jump: 'hose', slide: 'exhaust', jumpP: .2, slideP: .24, dodge: ['drums', 'drums', 'cart'] },
   plenum: { jump: 'condensate', slide: 'duct', jumpP: .22, slideP: .26, dodge: ['filters', 'filters', 'boxes'] },
   warehouse: { jump: 'pallets', slide: 'tunnel', jumpP: .16, slideP: .16, dodge: ['jack', 'jack', 'crate', 'wrapped'] },
+  noc: { jump: 'cable', slide: 'screens', jumpP: .18, slideP: .2, dodge: ['desk', 'chair', 'kiosk', 'desk'] },
+  roof: { jump: 'condensate', slide: 'pipebridge', jumpP: .2, slideP: .22, dodge: ['condenser', 'condenser', 'drums'] },
+  battery: { jump: 'batcables', slide: 'busbar', jumpP: .22, slideP: .22, dodge: ['batcart', 'spillkit', 'batcart'] },
+  dock: { jump: 'dockplate', slide: 'conveyor', jumpP: .18, slideP: .18, dodge: ['jack', 'wrapped', 'crate', 'boxes'] },
 };
 // special events and the rooms they can happen in
 const EVENTS = {
-  blackout: t => !THEMES[t].sun,
+  blackout: t => !THEMES[t].sun && !THEMES[t].outdoor,
   fm200: t => THEMES[t].kind === 'racks',
   tiles: t => THEMES[t].kind === 'racks',
 };
-const THEME_ORDER = ['hall', 'core', 'gallery', 'plenum', 'cold', 'warehouse', 'storeroom', 'generator', 'power'];
+const THEME_ORDER = ['hall', 'core', 'gallery', 'noc', 'plenum', 'cold', 'warehouse', 'roof', 'storeroom', 'battery', 'generator', 'dock', 'power'];
 
 // Each world lasts a random 12-32 seconds at the speed you'll be running there.
 export const runSpeedAt = d => Math.min(30, 13 + d * .0055);
@@ -616,7 +624,7 @@ export class Track {
         push({ type: 'door', u, len: .9, lanes: [l], need: 'dodge', x: side * 2.25, halfW: .95, slideOk: true, side, open: 0, swing: { trigger: 24, speed: 2.4 } });
         free = [0, 1, 2].filter(x => x !== l);
       }
-      else if (room === 'warehouse' && !inRide && r() < .35) {
+      else if ((room === 'warehouse' || room === 'dock') && !inRide && r() < .3) {
         // a forklift drives across the aisle as you approach
         const fromLeft = r() < .5, sx = fromLeft ? -HALF - 2.2 : HALF + 2.2, tx = fromLeft ? HALF + 2.6 : -HALF - 2.6;
         push({ type: 'forklift', u, len: 1.4, lanes: [0, 1, 2], need: 'dodge', x: sx, halfW: 1.45, rotY: fromLeft ? -Math.PI / 2 : Math.PI / 2, move: { to: tx, trigger: 30, speed: 4.6 } });

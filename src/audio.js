@@ -95,6 +95,11 @@ export class GameAudio {
     const lfo = ctx.createOscillator(); lfo.frequency.value = .9; const lg = ctx.createGain(); lg.gain.value = 260;
     lfo.connect(lg).connect(sir.frequency);
     const sf = ctx.createBiquadFilter(); sf.type = 'lowpass'; sf.frequency.value = 1800;
+    // rain on the roof: band-limited noise
+    const rn = ctx.createBufferSource(); rn.buffer = this.noise; rn.loop = true;
+    const rf = ctx.createBiquadFilter(); rf.type = 'highpass'; rf.frequency.value = 1200;
+    this.rainGain = ctx.createGain(); this.rainGain.gain.value = 0;
+    rn.connect(rf).connect(this.rainGain).connect(this.sfx); rn.start();
     this.siren = ctx.createGain(); this.siren.gain.value = 0;
     sir.connect(sf).connect(this.siren).connect(this.sfx); sir.start(); lfo.start();
   }
@@ -117,6 +122,7 @@ export class GameAudio {
     a.play().catch(() => {});
   }
 
+  setRain(x) { if (this.rainGain) this.rainGain.gain.setTargetAtTime(x * .09, this.ctx.currentTime, .5); }
   setSiren(x) { if (this.siren) this.siren.gain.setTargetAtTime(x * .035, this.ctx.currentTime, .2); }
   setDanger(x) { if (this.alarm) this.alarm.gain.setTargetAtTime(x * .07, this.ctx.currentTime, .1); }
 

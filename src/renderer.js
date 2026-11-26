@@ -75,6 +75,14 @@ export class View {
       this.wave.floor.rotation.x = -Math.PI / 2; this.wave.floor.renderOrder = 1; this.wave.floor.visible = false;
       this.scene.add(this.wave.floor);
     }
+    // rain for the rooftop: streaks wrapped in a box around the camera
+    {
+      const N = 600, pos = new Float32Array(N * 6);
+      this.rainSeed = Array.from({ length: N }, () => [Math.random() * 16 - 8, Math.random() * 12, Math.random() * 34 - 6, .9 + Math.random() * .4]);
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xa8c4e0, transparent: true, opacity: 0, depthWrite: false }));
+      this.rain.frustumCulled = false; this.rain.visible = false; this.scene.add(this.rain);
+    }
     // events reuse existing lights (an extra light costs every pixel, every frame):
     // the first pooled light becomes the head torch, the outage light the alarm beacon
     // FM-200 discharge: soft white clouds pouring out of the ceiling
@@ -298,6 +306,7 @@ export class View {
     this.placeLights(run);
     this.updateEvent(run, dt, t, p, fwd);
     this.updateWave(run, dt, t, p, fwd);
+    this.updateRain(run, dt, t, fwd);
 
     // outage glow behind the runner
     const heat = run.chaserHeat || 0;
@@ -375,6 +384,24 @@ export class View {
       sp.scale.setScalar(1.2 + a * 4.5);
       sp.material.opacity = .32 * Math.sin(Math.PI * Math.min(1, a)) * Math.max(gas, .3);
     }
+  }
+
+  updateRain(run, dt, t, fwd) {
+    const want = THEMES[run.seg.theme].rain ? 1 : 0;
+    this.rainMix = THREE.MathUtils.damp(this.rainMix || 0, want, 2, dt);
+    this.rain.visible = this.rainMix > .02;
+    if (!this.rain.visible) return;
+    this.rain.material.opacity = .45 * this.rainMix;
+    const a = this.rain.geometry.attributes.position, c = this.camera.position, S = this.rainSeed;
+    const right = { x: -fwd.z, z: fwd.x };
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i];
+      const y = 12 - ((t * 14 * s[3] + s[1]) % 12);              // falling
+      const along = s[2], side = s[0];
+      const x = c.x + fwd.x * along + right.x * side, z = c.z + fwd.z * along + right.z * side;
+      a.setXYZ(i * 2, x, y, z); a.setXYZ(i * 2 + 1, x - fwd.x * .05, y + .45, z - fwd.z * .05);
+    }
+    a.needsUpdate = true;
   }
 
   updateWave(run, dt, t, p, fwd) {

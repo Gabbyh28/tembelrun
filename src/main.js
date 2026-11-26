@@ -492,6 +492,7 @@ async function boot() {
     const dark = run.eventKind === 'blackout' ? run.eventK : 0;
     if (Math.abs(dark - (assets.darkNow ?? 0)) > .005) { assets.darkNow = dark; for (const m of Object.values(assets.fixtureMats)) m.emissiveIntensity = 7 * Math.max(0, 1 - dark * 1.05); }
     audio.setSiren(run.mode === 'running' && run.eventKind === 'fm200' ? run.eventK : 0);
+    audio.setRain(THEMES[run.seg.theme].rain && run.mode !== 'ready' ? 1 : 0);
     audio.updatePower(run.giant && run.mode === 'running');
 
     // world animation

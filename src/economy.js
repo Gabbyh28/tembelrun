@@ -34,6 +34,15 @@ export class Wallet {
   get headStarts() { return this.store.get('headStarts', 0); }
   set headStarts(n) { this.store.set('headStarts', Math.max(0, n)); }
   buyHeadStart() { if (!this.spend(HEADSTART_COST)) return false; this.headStarts++; return true; }
+  // outfits: owned ids "char.outfit", and what each character wears
+  ownsOutfit(ch, id) { return this.store.get('outfitsOwned', []).includes(`${ch}.${id}`); }
+  buyOutfit(ch, id, cost) {
+    if (this.ownsOutfit(ch, id)) return true;
+    if (!this.spend(cost)) return false;
+    this.store.set('outfitsOwned', [...this.store.get('outfitsOwned', []), `${ch}.${id}`]); return true;
+  }
+  wearing(ch) { return this.store.get('outfitWear', {})[ch] || null; }
+  wear(ch, id) { const w = this.store.get('outfitWear', {}); if (id) w[ch] = id; else delete w[ch]; this.store.set('outfitWear', w); }
   isUnlocked(ch) { return this.unlocked.has(ch); }
   unlock(ch) { if (this.isUnlocked(ch)) return true; if (!this.spend(UNLOCK_COST[ch] ?? 0)) return false; this.unlocked.add(ch); this.save(); return true; }
   runBonuses() {

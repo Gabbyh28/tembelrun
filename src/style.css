@@ -295,3 +295,14 @@ h1 em { text-shadow: var(--extrude-lime); display: inline-block; animation: shin
 @keyframes trickPop { 0% { opacity: 0; transform: translateX(-50%) scale(.4) rotate(-6deg); } 18% { opacity: 1; transform: translateX(-50%) scale(1.1) rotate(2deg); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-24px); } }
 #boostBtn { position: absolute; bottom: calc(110px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 9; padding: 14px 26px; border: 0; border-radius: 18px; font: inherit; font-size: 20px; font-weight: 900; color: #2a1200; background: linear-gradient(180deg, #ffe08a, #ff9a1f 55%, #e0600a); box-shadow: inset 0 2px 0 rgba(255,255,255,.6), 0 6px 0 #8a3a00, 0 14px 30px rgba(255,140,30,.45); animation: pulse .6s infinite alternate; }
 #boostBtn small { font-size: 14px; opacity: .8; }
+
+/* daily reward */
+#dailyDays { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 16px; }
+.dday { display: grid; gap: 4px; place-items: center; padding: 10px 4px; border-radius: 14px; background: linear-gradient(180deg, rgba(52,66,82,.6), rgba(14,20,28,.85)); border: 1px solid var(--line); box-shadow: 0 4px 0 #05080c; }
+.dday small { color: var(--muted); font-size: 12px; }
+.dday b { font-size: 16px; font-weight: 900; white-space: nowrap; }
+.dday:last-child { grid-column: span 2; background: linear-gradient(180deg, rgba(120,70,10,.7), rgba(40,22,4,.9)); border-color: rgba(255,200,60,.6); }
+.dday.done { opacity: .45; }
+.dday.done b::after { content: ' ✓'; color: var(--lime); }
+.dday.now { border-color: var(--lime); box-shadow: 0 4px 0 #0d1604, 0 0 22px rgba(183,255,60,.45); animation: pulse .7s infinite alternate; }
+.swatch { display: inline-block; width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.7); box-shadow: 0 2px 0 rgba(0,0,0,.5), inset 0 -4px 6px rgba(0,0,0,.35); }

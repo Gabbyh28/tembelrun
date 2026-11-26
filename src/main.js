@@ -12,6 +12,7 @@ import { Wallet, UPGRADES, UNLOCK_COST, HEADSTART_COST, dailySeed, mulberry32 } 
 import { Music } from './music.js';
 import { Haptic } from './haptics.js';
 import { Leaderboard } from './leaderboard.js';
+import { OUTFITS, outfitRule, recolorCanvas } from './outfits.js';
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -54,6 +55,7 @@ async function boot() {
   loadingText.textContent = 'מעירים את הצוות…'; $('loadFill').style.width = '75%';
   await Promise.all(CHARACTERS.map(c => loadAtlas(c.atlas)));
   await player.setCharacter(character);
+  player.setOutfit(outfitRule(character.id, wallet.wearing(character.id)));
   await hanan.load();
   loadingText.textContent = 'מכינים את כל העולמות…'; $('loadFill').style.width = '88%';
   await track.prewarm(view.renderer, view.camera);
@@ -64,7 +66,7 @@ async function boot() {
   $('loadFill').style.width = '100%';
   await new Promise(r => setTimeout(r, 350));
   $('loading').classList.add('done');
-  if (location.search.includes('debug')) window.__tembel = { run, track, view, player, assets };
+  if (location.search.includes('debug')) window.__tembel = { run, track, view, player, assets, CHARACTERS, outfitRule };
 
   /* ---------------- UI helpers ---------------- */
   const imgCache = {};
@@ -74,9 +76,12 @@ async function boot() {
     const [x, y, w, h] = FRAMES[ch.atlas].frames[ch.portraitFrame ?? 10];
     const g = canvas.getContext('2d');
     g.clearRect(0, 0, canvas.width, canvas.height);
-    // head-and-shoulders crop
+    // whole frame first (so the outfit's body bands line up), then a head-and-shoulders crop
+    const full = document.createElement('canvas'); full.width = w; full.height = h;
+    const fg = full.getContext('2d', { willReadFrequently: true }); fg.drawImage(img, x, y, w, h, 0, 0, w, h);
+    recolorCanvas(fg, 0, 0, w, h, outfitRule(ch.id, wallet.wearing(ch.id)));
     const cw = w * 1.1, ch2 = cw;
-    g.drawImage(img, x + w / 2 - cw / 2, y - 4, cw, ch2, 0, 0, canvas.width, canvas.height);
+    g.drawImage(full, w / 2 - cw / 2, -4, cw, ch2, 0, 0, canvas.width, canvas.height);
   }
   function refreshCharacterButton() {
     $('characterName').textContent = character.name;
@@ -122,7 +127,7 @@ async function boot() {
       }
       character = ch; store.set('character', ch.id);
       grid.querySelectorAll('.char-card').forEach(c => c.classList.toggle('selected', c.dataset.id === ch.id));
-      await player.setCharacter(ch); run.character = ch;
+      await player.setCharacter(ch); run.character = ch; player.setOutfit(outfitRule(ch.id, wallet.wearing(ch.id)));
       refreshCharacterButton();
       $('characterDialog').close();
     };
@@ -156,6 +161,28 @@ async function boot() {
       b.innerHTML = `${HEADSTART_COST} <i class="qi"></i>`; b.disabled = wallet.balance < HEADSTART_COST;
       b.onclick = () => { if (wallet.buyHeadStart()) { audio.unlock(); audio.play({ type: 'power' }); refreshWallet(); renderShop(); } };
       el.append(b); list.append(el);
+    }
+    {
+      const oh = document.createElement('div'); oh.className = 'shop-head'; oh.textContent = `תלבושות ל${character.name}`; list.append(oh);
+      const wearing = wallet.wearing(character.id);
+      const opts = [{ id: null, name: 'המקורי', color: 'conic-gradient(#888 0 25%, #ccc 0 50%, #888 0 75%, #ccc 0)', cost: 0 }, ...(OUTFITS[character.id] || [])];
+      for (const o of opts) {
+        const owned = !o.id || wallet.ownsOutfit(character.id, o.id), on = (wearing || null) === o.id;
+        const el = document.createElement('div'); el.className = 'shop-item';
+        el.innerHTML = `<span class="ic"><i class="swatch" style="background:${o.color}"></i></span><span><strong>${o.name}</strong><small>${on ? 'לבוש עכשיו' : owned ? 'בבעלותך' : ''}</small></span>`;
+        const b = document.createElement('button'); b.className = 'buy';
+        if (on) { b.textContent = 'לבוש ✓'; b.disabled = true; }
+        else if (owned) b.textContent = 'ללבוש';
+        else { b.innerHTML = `${o.cost.toLocaleString('he-IL')} <i class="qi"></i>`; b.disabled = wallet.balance < o.cost; }
+        b.onclick = () => {
+          if (!owned && !wallet.buyOutfit(character.id, o.id, o.cost)) return;
+          wallet.wear(character.id, o.id); audio.unlock(); audio.play({ type: owned ? 'pickup' : 'record' });
+          player.setOutfit(outfitRule(character.id, o.id));
+          refreshWallet(); refreshCharacterButton(); renderShop();
+          grid.querySelectorAll('.char-card').forEach(c => { if (c.dataset.id === character.id) drawPortrait(c.querySelector('canvas'), character); });
+        };
+        el.append(b); list.append(el);
+      }
     }
     const head = document.createElement('div'); head.className = 'shop-head'; head.textContent = 'דמויות לפתיחה'; list.append(head);
     for (const ch of CHARACTERS) {
@@ -204,6 +231,32 @@ async function boot() {
     if (!board.store.get('posted.scores', 0)) await board.submit({ score: store.get('bestScore', 0), character: character.id });
     toast('נשמר ✓', 900); renderBoard();
   };
+  // 7-day login streak
+  const STREAK = [{ n: 50 }, { n: 75 }, { n: 100 }, { boost: 1 }, { n: 150 }, { n: 250 }, { n: 500, boost: 1 }];
+  function checkDaily() {
+    const today = dailySeed(), yesterday = dailySeed(new Date(Date.now() - 864e5));
+    const st = store.get('streak', { last: 0, day: 0 });
+    if (st.last === today) return;
+    const day = st.last === yesterday ? st.day % 7 + 1 : 1;
+    const grid = $('dailyDays'); grid.innerHTML = '';
+    STREAK.forEach((r, i) => {
+      const el = document.createElement('div');
+      el.className = 'dday' + (i + 1 < day ? ' done' : i + 1 === day ? ' now' : '');
+      el.innerHTML = `<small>יום ${i + 1}</small><b>${r.n ? `${r.n}<i class="qi"></i>` : ''}${r.boost ? '🚀' : ''}</b>`;
+      grid.append(el);
+    });
+    $('dailyClaim').onclick = () => {
+      const r = STREAK[day - 1];
+      if (r.n) wallet.add(r.n);
+      if (r.boost) wallet.headStarts = wallet.headStarts + r.boost;
+      store.set('streak', { last: today, day });
+      audio.unlock(); audio.play({ type: 'mystery' }); haptic.success();
+      refreshWallet(); $('dailyDialog').close();
+      toast(`🎁 ${r.n ? `+${r.n} QSFP` : ''}${r.n && r.boost ? ' + ' : ''}${r.boost ? 'זינוק 🚀' : ''}`, 1600);
+    };
+    $('dailyDialog').showModal();
+  }
+  setTimeout(checkDaily, 600);
   $('shopBtn').onclick = () => { renderShop(); $('shopDialog').showModal(); };
   const todayKey = 'daily.' + dailySeed();
   function refreshDaily() { const b = store.get(todayKey, 0); $('dailyBest').textContent = b ? `השיא היום: ${b.toLocaleString('he-IL')}` : 'מסלול חדש כל יום · QSFP כפול'; }

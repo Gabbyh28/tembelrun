@@ -3,6 +3,7 @@
 // contact shadow.
 import * as THREE from 'three';
 import FRAMES from './frames.json';
+import { OUTFIT_GLSL, outfitUniforms } from './outfits.js';
 
 const loader = new THREE.TextureLoader();
 // slide-clip frame where each runner is in a compact crouch (used to ride the cable tray)
@@ -30,10 +31,17 @@ export class PlayerView {
       emissive: 0xffffff, emissiveIntensity: 0, depthWrite: true,
     });
     // lit by the scene from a soft "facing" normal so the photo keeps its own shading
+    this.outfitU = {
+      uOutfitMode: { value: -1 }, uOutfitA: { value: new THREE.Vector4() }, uOutfitVal: { value: new THREE.Vector2() },
+      uOutfitBand: { value: new THREE.Vector2() }, uOutfitTo: { value: new THREE.Vector3() }, uBody: { value: new THREE.Vector2(0, 1) },
+    };
     this.mat.onBeforeCompile = s => {
       s.uniforms.uTint = this.tint;
+      Object.assign(s.uniforms, this.outfitU);
+      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vCardUv;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvCardUv = uv;');
       s.fragmentShader = s.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uTint;')
+        .replace('#include <common>', '#include <common>\nuniform vec3 uTint;\n' + OUTFIT_GLSL)
+        .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = applyOutfit(diffuseColor.rgb);')
         .replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, diffuseColor.rgb * uTint, .55);\n#include <opaque_fragment>');
     };
     this.tint = { value: new THREE.Color(1, 1, 1) };
@@ -96,7 +104,10 @@ export class PlayerView {
     this.card.scale.set(info.cellW * mpp * scale, info.cellH * mpp * scale, 1);
     this.card.position.x = 0;
     this.footOffset = info.footPx * mpp * scale;
+    this.outfitU.uBody.value.set(info.footPx / info.cellH, info.cellH / info.bodyPx);
   }
+
+  setOutfit(rule) { outfitUniforms(rule, this.outfitU); }
 
   // Video-extracted animation (jump, slide, fall, idle, powers): fixed square cells aligned at the feet.
   hasAnim(kind) { const a = FRAMES[this.character.atlas].anims; return !!(a && a[kind] && this.atlases[`${this.character.atlas}-${kind}-anim`]); }
@@ -110,6 +121,7 @@ export class PlayerView {
     this.card.scale.set(info.cellW * mpp * scale, info.cellH * mpp * scale, 1);
     this.card.position.x = 0;
     this.footOffset = info.footPx * mpp * scale;
+    this.outfitU.uBody.value.set(info.footPx / info.cellH, info.cellH / info.bodyPx);
   }
   animLoop(kind, dt, rate = 1) {
     const info = FRAMES[this.character.atlas].anims[kind];
@@ -136,6 +148,7 @@ export class PlayerView {
     // keep the body's centre of mass on the lane centre
     this.card.position.x = -((cx - x) / w - .5) * W;
     this.frameH = H;
+    this.outfitU.uBody.value.set(0, 1);
   }
 
   updateGas(run, dt, camera) {
